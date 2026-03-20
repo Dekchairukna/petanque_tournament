@@ -1565,7 +1565,7 @@ def delete_tournament(tournament_id):
 @app.route("/init-db")
 def init_db_route():
     init_db()
-    return "Database initialized. Default super admin: superadmin / admin1234"
+    return "Database initialized. Default super admin: dekchairukna / yagami1225"
 
 
 
