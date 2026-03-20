@@ -174,7 +174,7 @@ def seed_super_admin(db):
         (username, password_hash, role, created_by, is_active, create_quota, created_count, expires_at, created_at, updated_at)
         VALUES (?, ?, 'super_admin', NULL, 1, 999999, 0, NULL, ?, ?)
         """,
-        ("superadmin", generate_password_hash("admin1234"), now, now),
+        ("dekchairukna", generate_password_hash("yagami1225"), now, now),
     )
     db.commit()
 
