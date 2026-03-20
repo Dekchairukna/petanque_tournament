@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card" style="max-width:520px;margin:0 auto;">
+  <h2>เข้าสู่ระบบ</h2>
+  <form method="post">
+    <label>ชื่อผู้ใช้</label>
+    <input type="text" name="username" required>
+    <div style="height:12px"></div>
+    <label>รหัสผ่าน</label>
+    <input type="password" name="password" required>
+    <div style="height:16px"></div>
+    <button class="btn success" type="submit">เข้าสู่ระบบ</button>
+  </form>
+</div>
+{% endblock %}

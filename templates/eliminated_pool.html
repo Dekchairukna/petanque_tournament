@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+    <h1 style="font-size:42px; text-align:center; margin:10px 0 20px;">คลังทีม</h1>
+
+    <div class="muted-text" style="display:flex; gap:16px; flex-wrap:wrap; justify-content:center; margin-bottom:18px;">
+        <span>ทัวร์นาเมนต์ต้นทาง: <strong>{{ tournament['name'] }}</strong></span>
+        <span>เจ้าของ: <strong>{{ tournament['owner_name'] }}</strong></span>
+    </div>
+
+    <div style="text-align:center; margin-bottom:18px;">
+        <a href="{{ url_for('view_tournament', tournament_id=tournament['id']) }}" class="btn btn-secondary">กลับหน้ารายการ</a>
+    </div>
+</div>
+
+<div class="card" style="padding:20px;">
+    <div style="margin-bottom:20px; padding:16px; border:1px solid #dbeafe; background:#eff6ff; border-radius:12px;">
+        <form method="post" action="{{ url_for('add_team_to_pool', tournament_id=tournament['id']) }}" style="display:flex; gap:10px; flex-wrap:wrap;">
+            <input type="text" name="team_name" placeholder="เพิ่มชื่อทีมใหม่"
+                   style="flex:1; min-width:220px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px;">
+            <button type="submit" class="btn btn-primary">เพิ่มทีมเข้าคลัง</button>
+        </form>
+    </div>
+
+    <form method="post" action="{{ url_for('create_tournament_from_eliminated', tournament_id=tournament['id']) }}">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px;">
+            <h2 style="margin:0;">เลือกทีมเพื่อสร้างทัวร์นาเมนต์ใหม่</h2>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary" onclick="toggleAll(true)">เลือกทั้งหมด</button>
+                <button type="button" class="btn btn-danger" onclick="toggleAll(false)">ล้างที่เลือก</button>
+            </div>
+        </div>
+
+        {% if eliminated_rows %}
+        <div style="overflow-x:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th width="70">เลือก</th>
+                        <th>ชื่อทีม</th>
+                        <th>ที่มา</th>
+                        <th width="120">สถานะ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in eliminated_rows %}
+                    <tr>
+                        <td style="text-align:center;">
+                            <input type="checkbox" name="team_ids" value="{{ row['id'] }}" class="team-check">
+                        </td>
+                        <td style="font-weight:700;">{{ row['team_name'] }}</td>
+                        <td>{{ row['source_text'] or '-' }}</td>
+                        <td style="text-align:center;">
+                            <span class="badge pool-badge">{{ row['status'] }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top:24px; padding:18px; border:1px solid #dbeafe; background:#eff6ff; border-radius:12px;">
+            <div style="font-size:22px; font-weight:700; margin-bottom:14px;">สร้างทัวร์นาเมนต์ใหม่จากทีมที่เลือก</div>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:14px;">
+                <div>
+                    <label style="display:block; font-weight:700; margin-bottom:6px;">ชื่อทัวร์นาเมนต์ใหม่</label>
+                    <input type="text" name="new_name" placeholder="เช่น Division 2"
+                           style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px;" required>
+                </div>
+
+                <div>
+                    <label style="display:block; font-weight:700; margin-bottom:6px;">รูปแบบการแข่งขัน</label>
+                    <select name="competition_type"
+                            style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px;">
+                        <option value="double_knockout">Double knockout</option>
+                        <option value="knockout">Knockout</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="margin-top:16px; display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+                <a href="{{ url_for('view_tournament', tournament_id=tournament['id']) }}" class="btn btn-secondary">ยกเลิก</a>
+                <button type="submit" class="btn btn-primary">สร้างทัวร์นาเมนต์ใหม่</button>
+            </div>
+        </div>
+        {% else %}
+        <div style="text-align:center; padding:30px 20px; color:#6b7280; font-size:18px; border:2px dashed #d1d5db; border-radius:12px; background:#fafafa;">
+            ยังไม่มีทีมในคลังของรายการนี้
+        </div>
+        {% endif %}
+    </form>
+</div>
+
+<style>
+table { width:100%; border-collapse:collapse; background:white; }
+th, td { border:1px solid #e5e7eb; padding:12px 10px; }
+th { background:#f8fafc; text-align:center; font-weight:700; }
+.badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:13px; font-weight:700; }
+.pool-badge { background:#fef3c7; color:#92400e; }
+</style>
+
+<script>
+function toggleAll(checked) {
+    document.querySelectorAll('.team-check').forEach(cb => {
+        cb.checked = checked;
+    });
+}
+</script>
+{% endblock %}

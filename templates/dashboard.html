@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}แดชบอร์ด{% endblock %}
+
+{% block content %}
+<div class="page-grid">
+    <div class="card" style="padding: 22px;">
+        <div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+            <div>
+                <h1 style="margin:0 0 8px 0;">แดชบอร์ด</h1>
+                <p class="muted-text" style="margin:0;">
+                    จัดการทัวร์นาเมนต์ของคุณได้จากหน้านี้
+                </p>
+            </div>
+
+            <div>
+                {% if create_ok %}
+                    <a class="btn btn-primary" href="{{ url_for('create_tournament') }}">สร้างทัวร์นาเมนต์</a>
+                {% else %}
+                    <button class="btn btn-secondary" disabled>สร้างทัวร์นาเมนต์ไม่ได้</button>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if not create_ok %}
+        <div style="margin-top:14px; padding:12px 14px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; border-radius:12px;">
+            {{ create_message }}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card" style="padding: 20px;">
+        <h2 class="section-title">รายการของฉัน</h2>
+
+        {% if tournaments %}
+        <div style="overflow-x:auto;">
+            <table style="border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">ชื่อรายการ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">รูปแบบ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">ทีม</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">สาย</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">เจ้าของ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in tournaments %}
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            <strong>{{ t.name }}</strong>
+                        </td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            {{ competition_type_label(t.competition_type) }}
+                        </td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ t.team_count }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ t.group_count }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ t.owner_name }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                <a class="btn btn-primary" href="{{ url_for('view_tournament', tournament_id=t.id) }}">เปิด</a>
+                                <form method="post" action="{{ url_for('delete_tournament', tournament_id=t.id) }}" onsubmit="return confirm('ยืนยันการลบทัวร์นาเมนต์นี้?');">
+                                    <button type="submit" class="btn btn-danger">ลบ</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">ยังไม่มีทัวร์นาเมนต์</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

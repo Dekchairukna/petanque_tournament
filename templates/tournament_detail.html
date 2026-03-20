@@ -1,0 +1,401 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card no-print" style="padding:22px;">
+    <h1 style="font-size:48px; text-align:center; margin:10px 0 18px;">{{ tournament['name'] }}</h1>
+    <div style="text-align:center; margin-bottom:18px;">
+        <span class="badge" style="background:#2f2f2f; color:#ffd900; font-size:24px; padding:10px 22px; font-weight:700;">
+            {{ competition_type_label(tournament['competition_type']) }}
+        </span>
+    </div>
+    <div class="muted-text" style="display:flex; gap:16px; flex-wrap:wrap; justify-content:center;">
+        <span>เจ้าของ: {{ tournament['owner_name'] }}</span>
+        <span>จำนวนทีม: {{ tournament['team_count'] }} ทีม</span>
+        <span>จำนวนสาย: {{ tournament['group_count'] }} สาย</span>
+    </div>
+</div>
+
+{% if can_manage %}
+<div class="card no-print" style="padding:18px; margin-top:18px;">
+    <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+        <div>
+            <h2 style="margin:0 0 8px 0;">แถบจับสลากรอบถัดไป</h2>
+            <div class="muted-text">จับตอนไหนก็ได้ และถ้าบางสายยังไม่จบ ระบบจะใช้ placeholder เช่น 1A / 2B ให้ก่อน</div>
+        </div>
+
+        <div class="top-action-buttons">
+            <a href="{{ url_for('eliminated_pool', tournament_id=tournament['id']) }}" class="btn action-btn btn-pool">คลังทีม</a>
+            <a href="{{ url_for('print_groups_sheet', tournament_id=tournament['id']) }}" class="btn action-btn btn-print" target="_blank">ใบปริ้นสาย</a>
+        </div>
+    </div>
+
+    <form method="post" action="{{ url_for('create_next_round', tournament_id=tournament['id']) }}"
+          style="margin-top:16px; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; align-items:end;">
+        <div>
+            <label style="display:block; font-weight:700; margin-bottom:6px;">อ้างอิงจากรอบ</label>
+            <select name="source_round_id" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px;">
+                {% for rv in round_views %}
+                <option value="{{ rv.round['id'] }}">{{ rv.round['round_name'] }} - {{ competition_type_label(rv.round['round_type']) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label style="display:block; font-weight:700; margin-bottom:6px;">รอบถัดไปเป็น</label>
+            <select name="round_type" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px;">
+                <option value="double_knockout">Double knockout</option>
+                <option value="knockout">Knockout</option>
+            </select>
+        </div>
+
+        <div>
+            <label style="display:block; font-weight:700; margin-bottom:6px;">จำนวนสาย</label>
+            <input type="number" name="next_group_count" placeholder="อัตโนมัติ"
+                   style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px;">
+        </div>
+
+        <div>
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+                <input type="checkbox" name="separate_same" value="1" checked>
+                แยกชื่อสังกัดเดียวกัน
+            </label>
+        </div>
+
+        <div>
+            <button type="submit" class="btn btn-primary system-btn" style="width:100%;">สร้างรอบต่อไป</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+{% for rv in round_views %}
+<div class="card round-card" id="saved-round-{{ rv.round['id'] }}" style="padding:18px; margin-top:20px;">
+    <div class="round-title no-print" style="text-align:center; margin-bottom:18px;">
+        <span class="badge" style="background:#1a73e8; color:#fff; font-size:22px; padding:8px 18px;">
+            {{ rv.round['round_name'] }} - {{ competition_type_label(rv.round['round_type']) }}
+        </span>
+    </div>
+
+    {% for group in rv.group_views %}
+    <div class="group-box printable-group" id="round-{{ rv.round['round_no'] }}-group-{{ group.group_no }}" style="border:1.5px solid #ccc; padding:15px; margin:18px 0;">
+        <div class="print-header only-print" style="display:none; text-align:center; margin-bottom:14px;">
+            <div style="font-size:24px; font-weight:800;">{{ tournament['name'] }}</div>
+            <div style="font-size:18px; margin-top:4px;">{{ rv.round['round_name'] }} - {{ competition_type_label(rv.round['round_type']) }}</div>
+            <div style="font-size:22px; font-weight:700; margin-top:6px;">สายที่ {{ group.group_no }}</div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
+            <b style="font-size:28px;">สายที่ {{ group.group_no }}</b>
+            {% if can_manage %}
+            <button type="submit" form="form-{{ rv.round['id'] }}-{{ group.group_no }}" class="btn btn-primary system-btn no-print">บันทึกผล</button>
+            {% endif %}
+        </div>
+
+        <form id="form-{{ rv.round['id'] }}-{{ group.group_no }}"
+              method="post"
+              action="{{ url_for('save_round_scores', round_id=rv.round['id'], group_no=group.group_no) }}">
+            <table>
+                <thead>
+                    <tr>
+                        <th width="110">สนาม</th>
+                        <th width="70">ลำดับ</th>
+                        <th>ชื่อทีม</th>
+                        <th width="90">1</th>
+                        {% if rv.round['round_type'] == 'double_knockout' %}
+                        <th width="90">2</th>
+                        <th width="90">3</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for slot in group.slots %}
+                    {% set s1 = group.stage_state[slot['slot_no']][1] %}
+                    {% set s2 = group.stage_state[slot['slot_no']][2] %}
+                    {% set s3 = group.stage_state[slot['slot_no']][3] %}
+                    <tr class="{% if slot['is_bye'] %}bye-row{% endif %}">
+                        <td>
+                            {% if slot['is_bye'] %}
+                            <input type="text" class="court-input bye-input" value="X" disabled>
+                            {% else %}
+                            <input type="text"
+                                   class="court-input autosave-court"
+                                   name="court_{{ slot['id'] }}"
+                                   data-round="{{ rv.round['id'] }}"
+                                   data-slot="{{ slot['id'] }}"
+                                   data-group="{{ group.group_no }}"
+                                   value="{{ slot['court_name'] or '' }}"
+                                   placeholder="สนาม">
+                            {% endif %}
+                        </td>
+
+                        <td>{{ slot['slot_no'] }}</td>
+
+                        <td>
+                            {% if slot['team_name'] %}
+                                {{ slot['team_name'] }}
+                            {% else %}
+                                {{ slot['display_name'] }}
+                            {% endif %}
+                            {% if not slot['is_resolved'] and not slot['is_bye'] %}
+                                <span class="placeholder-tag no-print">รอผล</span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if slot['is_bye'] %}
+                            <input type="number" class="bye-input" value="0" disabled>
+                            {% else %}
+                            <input type="number"
+                                   min="0" max="13"
+                                   class="autosave-score {% if s1.color == 'win' %}win-cell{% elif s1.color == 'loss' %}loss-cell{% endif %} {% if s1.locked %}locked-input{% endif %}"
+                                   data-round="{{ rv.round['id'] }}"
+                                   data-slot="{{ slot['id'] }}"
+                                   data-group="{{ group.group_no }}"
+                                   data-stage="1"
+                                   value="{{ rv.score_map.get((group.group_no, slot['slot_no'], 1), '') }}"
+                                   {% if s1.locked %}disabled{% endif %}>
+                            {% endif %}
+                        </td>
+
+                        {% if rv.round['round_type'] == 'double_knockout' %}
+                        <td>
+                            {% if slot['is_bye'] %}
+                            <input type="number" class="bye-input" value="0" disabled>
+                            {% else %}
+                            <input type="number"
+                                   min="0" max="13"
+                                   class="autosave-score {% if s2.color == 'win' %}win-cell{% elif s2.color == 'loss' %}loss-cell{% endif %} {% if s2.locked %}locked-input{% endif %}"
+                                   data-round="{{ rv.round['id'] }}"
+                                   data-slot="{{ slot['id'] }}"
+                                   data-group="{{ group.group_no }}"
+                                   data-stage="2"
+                                   value="{{ rv.score_map.get((group.group_no, slot['slot_no'], 2), '') }}"
+                                   {% if s2.locked %}disabled{% endif %}>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if slot['is_bye'] %}
+                            <input type="number" class="bye-input" value="0" disabled>
+                            {% else %}
+                            <input type="number"
+                                   min="0" max="13"
+                                   class="autosave-score {% if s3.color == 'win' %}win-cell{% elif s3.color == 'loss' %}loss-cell{% endif %} {% if s3.locked %}locked-input{% endif %}"
+                                   data-round="{{ rv.round['id'] }}"
+                                   data-slot="{{ slot['id'] }}"
+                                   data-group="{{ group.group_no }}"
+                                   data-stage="3"
+                                   value="{{ rv.score_map.get((group.group_no, slot['slot_no'], 3), '') }}"
+                                   {% if s3.locked %}disabled{% endif %}>
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </form>
+
+        <div style="margin-top:14px; font-size:22px; font-weight:800; line-height:1.8;">
+            {% if rv.round['round_type'] == 'double_knockout' %}
+                <div>🥇 อันดับ 1: {{ group.result['winner']['team_name'] if group.result['winner'] else '...' }}</div>
+                <div>🥈 อันดับ 2: {{ group.result['second']['team_name'] if group.result['second'] else '...' }}</div>
+            {% else %}
+                <div>🥇 ผู้ชนะ: {{ group.result['winner']['team_name'] if group.result['winner'] else '...' }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
+
+<style>
+table { width:100%; border-collapse:collapse; background:#fff; }
+th, td { border:1px solid #e5e7eb; padding:10px 12px; }
+th { background:#f8fafc; text-align:center; }
+td input[type="text"], td input[type="number"] {
+    width:100%;
+    box-sizing:border-box;
+    padding:8px 10px;
+    border:1px solid #d1d5db;
+    border-radius:8px;
+    text-align:center;
+}
+.badge { display:inline-block; border-radius:999px; }
+
+/* ปุ่มด้านบน */
+.top-action-buttons {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+}
+.action-btn {
+    min-width:140px;
+    height:44px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:10px;
+    font-weight:700;
+    text-decoration:none;
+    border:1px solid transparent;
+    box-sizing:border-box;
+    transition:all .15s ease;
+}
+.btn-pool {
+    background:#fee2e2 !important;
+    color:#b91c1c !important;
+    border-color:#fecaca !important;
+}
+.btn-pool:hover {
+    background:#fecaca !important;
+}
+.btn-print {
+    background:#e0f2fe !important;
+    color:#0369a1 !important;
+    border-color:#bae6fd !important;
+}
+.btn-print:hover {
+    background:#bae6fd !important;
+}
+
+/* ปุ่มระบบ */
+.system-btn {
+    min-width:140px;
+    height:44px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:10px;
+    font-weight:700;
+    box-sizing:border-box;
+}
+
+.win-cell {
+    background:#d4edda !important;
+    border:2px solid #28a745 !important;
+    font-weight:800;
+}
+.loss-cell {
+    background:#f8d7da !important;
+    border:2px solid #dc2626 !important;
+    font-weight:800;
+}
+
+.bye-row td {
+    background:#eef2f7 !important;
+    color:#6b7280 !important;
+}
+.bye-input {
+    background:#e5e7eb !important;
+    border:1px solid #cbd5e1 !important;
+    color:#6b7280 !important;
+    box-shadow:none !important;
+    cursor:not-allowed !important;
+}
+.bye-input::placeholder {
+    color:#9ca3af !important;
+}
+
+.locked-input {
+    background:#f3f4f6 !important;
+    cursor:not-allowed !important;
+}
+.placeholder-tag {
+    display:inline-block;
+    margin-left:8px;
+    padding:2px 8px;
+    font-size:12px;
+    border-radius:999px;
+    background:#fff3cd;
+    color:#7c5a00;
+    vertical-align:middle;
+}
+
+@media print {
+    @page { size: A4 portrait; margin: 12mm; }
+    body { background:#fff !important; }
+    .nav, .flash, .no-print, .btn, button { display:none !important; }
+    .wrap { max-width:none !important; margin:0 !important; padding:0 !important; }
+    .card, .round-card {
+        box-shadow:none !important;
+        border:none !important;
+        margin:0 !important;
+        padding:0 !important;
+        background:#fff !important;
+    }
+    .group-box.printable-group {
+        break-after: page;
+        page-break-after: always;
+        margin:0 !important;
+        border:none !important;
+        padding:0 !important;
+    }
+    .group-box.printable-group:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+    .only-print { display:block !important; }
+    table { page-break-inside: avoid; }
+    tr, td, th { page-break-inside: avoid; }
+    input {
+        border:none !important;
+        padding:0 !important;
+        background:transparent !important;
+        color:#111827 !important;
+    }
+    .locked-input, .bye-input, .win-cell, .loss-cell {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+</style>
+
+<script>
+async function autosaveField(input) {
+    const value = input.value.trim();
+    if (value !== "") {
+        const n = Number(value);
+        if (Number.isNaN(n) || n < 0 || n > 13) {
+            alert("กรอกคะแนนได้ตั้งแต่ 0 ถึง 13");
+            input.value = "";
+            return;
+        }
+    }
+
+    const roundId = input.dataset.round;
+    const slotId = input.dataset.slot;
+    const groupNo = input.dataset.group;
+    const stageNo = input.dataset.stage || "";
+    const row = input.closest("tr");
+    const courtInput = row.querySelector(".autosave-court");
+    const courtName = courtInput ? courtInput.value : "";
+
+    const formData = new FormData();
+    formData.append("slot_id", slotId);
+    formData.append("group_no", groupNo);
+    formData.append("stage_no", stageNo);
+    formData.append("score", input.classList.contains("autosave-score") ? input.value : "");
+    formData.append("court_name", courtName);
+
+    try {
+        const res = await fetch(`/rounds/${roundId}/autosave`, {
+            method: "POST",
+            body: formData
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            alert(data.message || "บันทึกไม่สำเร็จ");
+        }
+    } catch (e) {
+        console.error("autosave failed", e);
+    }
+}
+
+document.querySelectorAll(".autosave-score").forEach(input => {
+    input.addEventListener("change", () => autosaveField(input));
+});
+
+document.querySelectorAll(".autosave-court").forEach(input => {
+    input.addEventListener("change", () => autosaveField(input));
+});
+</script>
+{% endblock %}

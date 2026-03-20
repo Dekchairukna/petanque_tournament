@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}จัดการผู้ใช้{% endblock %}
+
+{% block content %}
+<div class="page-grid">
+    <div class="card" style="padding:24px;">
+        <h1 style="margin-top:0;">จัดการผู้ใช้</h1>
+        <p class="muted-text">สร้างแอดมินใหม่ กำหนดโควตา และปิด/เปิดการใช้งาน</p>
+
+        <form method="post" style="display:grid; grid-template-columns:repeat(2, minmax(220px, 1fr)); gap:16px; margin-top:18px;">
+            <div>
+                <label style="display:block; font-weight:700; margin-bottom:8px;">ชื่อผู้ใช้</label>
+                <input type="text" name="username" required style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;">
+            </div>
+
+            <div>
+                <label style="display:block; font-weight:700; margin-bottom:8px;">รหัสผ่าน</label>
+                <input type="text" name="password" required style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;">
+            </div>
+
+            <div>
+                <label style="display:block; font-weight:700; margin-bottom:8px;">สิทธิ์</label>
+                <select name="role" style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;">
+                    <option value="admin">Admin</option>
+                    <option value="super_admin">Super Admin</option>
+                </select>
+            </div>
+
+            <div>
+                <label style="display:block; font-weight:700; margin-bottom:8px;">จำนวนครั้งที่สร้างได้</label>
+                <input type="number" name="create_quota" min="0" value="1" style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;">
+            </div>
+
+            <div>
+                <label style="display:block; font-weight:700; margin-bottom:8px;">วันหมดอายุ (ถ้ามี)</label>
+                <input type="date" name="expires_at" style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;">
+            </div>
+
+            <div style="display:flex; align-items:end;">
+                <button type="submit" class="btn btn-primary">สร้างผู้ใช้</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card" style="padding:20px;">
+        <h2 class="section-title">รายการผู้ใช้</h2>
+
+        {% if users %}
+        <div style="overflow-x:auto;">
+            <table style="border-collapse:collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">ชื่อผู้ใช้</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">สิทธิ์</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">สถานะ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">โควตาคงเหลือ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">สร้างแล้ว</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">หมดอายุ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">อัปเดต</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            <strong>{{ user.username }}</strong>
+                            {% if user.creator_name %}
+                            <div class="muted-text" style="font-size:12px;">สร้างโดย {{ user.creator_name }}</div>
+                            {% endif %}
+                        </td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            {{ 'Super Admin' if user.role == 'super_admin' else 'Admin' }}
+                        </td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            {% if user.is_active %}ใช้งานอยู่{% else %}ปิดใช้งาน{% endif %}
+                        </td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ user.create_quota }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ user.created_count }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ user.expires_at or '-' }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            <div style="display:flex; flex-direction:column; gap:8px; min-width:230px;">
+                                {% if user.role != 'super_admin' %}
+                                <form method="post" action="{{ url_for('toggle_user', user_id=user.id) }}">
+                                    <button type="submit" class="btn btn-secondary" style="width:100%;">
+                                        {% if user.is_active %}ปิดการใช้งาน{% else %}เปิดการใช้งาน{% endif %}
+                                    </button>
+                                </form>
+                                {% endif %}
+
+                                <form method="post" action="{{ url_for('update_user_quota', user_id=user.id) }}" style="display:flex; gap:8px; flex-wrap:wrap;">
+                                    <input type="number" name="create_quota" min="0" value="{{ user.create_quota }}"
+                                           style="flex:1; min-width:90px; padding:10px; border:1px solid #d1d5db; border-radius:10px;">
+                                    <input type="date" name="expires_at" value="{{ user.expires_at or '' }}"
+                                           style="flex:1; min-width:120px; padding:10px; border:1px solid #d1d5db; border-radius:10px;">
+                                    <button type="submit" class="btn btn-primary">บันทึก</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">ยังไม่มีผู้ใช้</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
