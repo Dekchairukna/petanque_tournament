@@ -11,7 +11,7 @@ from flask import Flask, flash, g, redirect, render_template, request, session, 
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "tournament.db")
+DATABASE = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "tournament.db"))
 
 app = Flask(__name__)
 app.secret_key = "change-this-secret-key"
@@ -174,7 +174,7 @@ def seed_super_admin(db):
         (username, password_hash, role, created_by, is_active, create_quota, created_count, expires_at, created_at, updated_at)
         VALUES (?, ?, 'super_admin', NULL, 1, 999999, 0, NULL, ?, ?)
         """,
-        ("dekchairukna", generate_password_hash("yagami1225"), now, now),
+        ("superadmin", generate_password_hash("admin1234"), now, now),
     )
     db.commit()
 
@@ -651,6 +651,133 @@ def stage_is_editable(round_type, slots, stage_no, slot_no, score_map):
     return False
 
 
+
+
+def parse_skip_courts(skip_text):
+    skip_set = set()
+    for part in (skip_text or "").split(','):
+        part = part.strip()
+        if not part:
+            continue
+        if '-' in part:
+            a, b = part.split('-', 1)
+            try:
+                start = int(a.strip())
+                end = int(b.strip())
+            except ValueError:
+                continue
+            if start > end:
+                start, end = end, start
+            for n in range(start, end + 1):
+                skip_set.add(n)
+        else:
+            try:
+                skip_set.add(int(part))
+            except ValueError:
+                continue
+    return skip_set
+
+
+def renumber_round_courts(round_id, start_court=1, skip_courts=None):
+    db = get_db()
+    slots = db.execute(
+        "SELECT * FROM round_slots WHERE round_id = ? ORDER BY group_no, slot_no",
+        (round_id,),
+    ).fetchall()
+
+    skip_courts = set(skip_courts or [])
+    next_court = max(1, int(start_court or 1))
+    pending = []
+    current_group = None
+
+    def allocate_court():
+        nonlocal next_court
+        while next_court in skip_courts:
+            next_court += 1
+        court_value = str(next_court)
+        next_court += 1
+        return court_value
+
+    for slot in slots:
+        if current_group != slot["group_no"]:
+            pending = []
+            current_group = slot["group_no"]
+
+        pending.append(slot)
+        if len(pending) == 2:
+            has_bye = any(row["is_bye"] for row in pending)
+            court_name = None if has_bye else allocate_court()
+            for row in pending:
+                db.execute(
+                    "UPDATE round_slots SET court_name = ? WHERE id = ?",
+                    (court_name, row["id"]),
+                )
+            pending = []
+
+    if pending:
+        has_bye = any(row["is_bye"] for row in pending)
+        court_name = None if has_bye else allocate_court()
+        for row in pending:
+            db.execute(
+                "UPDATE round_slots SET court_name = ? WHERE id = ?",
+                (court_name, row["id"]),
+            )
+
+
+def add_team_into_bye_slot(round_id, slot_id, team_name):
+    db = get_db()
+    slot = db.execute(
+        "SELECT * FROM round_slots WHERE id = ? AND round_id = ?",
+        (slot_id, round_id),
+    ).fetchone()
+    if not slot:
+        return False, "ไม่พบช่องที่ต้องการแก้ไข"
+    if not slot["is_bye"]:
+        return False, "ช่องนี้ไม่ใช่ X"
+
+    name = (team_name or "").strip()
+    if not name:
+        return False, "กรุณากรอกชื่อทีม"
+
+    dup = db.execute(
+        """
+        SELECT id FROM round_slots
+        WHERE round_id = ? AND group_no = ? AND id != ?
+          AND LOWER(TRIM(COALESCE(team_name, display_name))) = LOWER(TRIM(?))
+        LIMIT 1
+        """,
+        (round_id, slot["group_no"], slot_id, name),
+    ).fetchone()
+    if dup:
+        return False, "สายนี้มีทีมชื่อนี้อยู่แล้ว"
+
+    db.execute(
+        """
+        UPDATE round_slots
+        SET display_name = ?, source_type = 'filled_bye', team_name = ?, is_bye = 0, is_resolved = 1
+        WHERE id = ?
+        """,
+        (name, name, slot_id),
+    )
+
+    round_row = db.execute("SELECT * FROM tournament_rounds WHERE id = ?", (round_id,)).fetchone()
+    if round_row:
+        exists = db.execute(
+            "SELECT id FROM tournament_teams WHERE tournament_id = ? AND LOWER(TRIM(display_name)) = LOWER(TRIM(?)) LIMIT 1",
+            (round_row["tournament_id"], name),
+        ).fetchone()
+        if not exists:
+            db.execute(
+                "INSERT INTO tournament_teams (tournament_id, display_name, base_name, created_at) VALUES (?, ?, ?, ?)",
+                (round_row["tournament_id"], name, get_base_name(name), now_str()),
+            )
+
+    db.execute(
+        "DELETE FROM round_scores WHERE round_id = ? AND group_no = ?",
+        (round_id, slot["group_no"]),
+    )
+    return True, "เพิ่มทีมลงแทน X แล้ว กรุณากรอกผลใหม่ของสายนี้"
+
 def get_round_views(tournament_id):
     db = get_db()
     rounds = db.execute(
@@ -667,7 +794,7 @@ def get_round_views(tournament_id):
 
         grouped = defaultdict(list)
         for slot in slots:
-            grouped[slot["group_no"]].append(slot)
+            grouped[slot["group_no"]].append(dict(slot))
 
         scores = db.execute(
             "SELECT * FROM round_scores WHERE round_id = ?",
@@ -679,6 +806,15 @@ def get_round_views(tournament_id):
         merged_score_map = dict(base_score_map)
 
         for group_no, group_slots in grouped.items():
+            for idx in range(0, len(group_slots), 2):
+                pair_slots = group_slots[idx:idx + 2]
+                has_bye = any(slot["is_bye"] for slot in pair_slots)
+                for offset, slot in enumerate(pair_slots):
+                    slot["pair_has_bye"] = has_bye
+                    slot["is_first_in_pair"] = (offset == 0)
+                    slot["show_court_input"] = (offset == 0 and not has_bye)
+                    slot["court_rowspan"] = len(pair_slots)
+
             local_score_map = apply_bye_auto_scores(rnd["round_type"], group_slots, dict(base_score_map))
             merged_score_map.update(local_score_map)
 
@@ -905,6 +1041,7 @@ def inject_user():
     return {
         "current_user": current_user(),
         "competition_type_label": competition_type_label,
+        "stage_can_edit": stage_is_editable,
     }
 
 
@@ -1240,7 +1377,7 @@ def autosave_round_score(round_id):
     score_raw = request.form.get("score", "")
     court_name = request.form.get("court_name", "").strip()
 
-    if not slot_id or not group_no or not stage_no:
+    if not slot_id or not group_no:
         return {"ok": False, "message": "ข้อมูลไม่ครบ"}, 400
 
     slot = db.execute(
@@ -1259,6 +1396,20 @@ def autosave_round_score(round_id):
         (round_id, int(group_no)),
     ).fetchall()
 
+    pair_start = slot["slot_no"] if slot["slot_no"] % 2 == 1 else slot["slot_no"] - 1
+    db.execute(
+        """
+        UPDATE round_slots
+        SET court_name = ?
+        WHERE round_id = ? AND group_no = ? AND slot_no IN (?, ?)
+        """,
+        (court_name or None, round_id, int(group_no), pair_start, pair_start + 1),
+    )
+
+    if stage_no in (None, ""):
+        db.commit()
+        return {"ok": True, "message": "บันทึกเลขสนามแล้ว"}
+
     score_rows = db.execute(
         "SELECT * FROM round_scores WHERE round_id = ? AND group_no = ?",
         (round_id, int(group_no)),
@@ -1267,19 +1418,8 @@ def autosave_round_score(round_id):
 
     stage_no_int = int(stage_no)
 
-    stage_states = build_stage_locks(round_row["round_type"], slots, score_map)
-    current_state = stage_states.get(slot["slot_no"], {}).get(stage_no_int, {"locked": False})
-
-    if current_state.get("locked"):
-        return {"ok": False, "message": "ช่องนี้ถูกล็อกแล้ว"}, 400
-
     if not stage_is_editable(round_row["round_type"], slots, stage_no_int, slot["slot_no"], score_map):
         return {"ok": False, "message": "ยังไม่ถึงรอบของช่องนี้"}, 400
-
-    db.execute(
-        "UPDATE round_slots SET court_name = ? WHERE id = ?",
-        (court_name or None, slot["id"]),
-    )
 
     if score_raw == "":
         db.execute(
@@ -1299,8 +1439,88 @@ def autosave_round_score(round_id):
 
         upsert_round_score(round_id, int(group_no), int(slot["slot_no"]), stage_no_int, score)
 
+    if stage_no_int < 3:
+        db.execute(
+            "DELETE FROM round_scores WHERE round_id = ? AND group_no = ? AND stage_no > ?",
+            (round_id, int(group_no), stage_no_int),
+        )
+
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "message": "บันทึกแล้ว"}
+
+
+
+
+@app.route("/rounds/<int:round_id>/renumber-courts", methods=["POST"])
+@login_required
+def renumber_courts(round_id):
+    db = get_db()
+    round_row = db.execute(
+        """
+        SELECT r.*, t.id AS tournament_id
+        FROM tournament_rounds r
+        JOIN tournaments t ON t.id = r.tournament_id
+        WHERE r.id = ?
+        """,
+        (round_id,),
+    ).fetchone()
+
+    if not round_row:
+        flash("ไม่พบรอบแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+
+    tournament = get_tournament_for_user(round_row["tournament_id"], current_user())
+    if not tournament:
+        flash("คุณไม่มีสิทธิ์จัดการ", "error")
+        return redirect(url_for("dashboard"))
+
+    start_court = request.form.get("start_court", type=int) or 1
+    skip_text = request.form.get("skip_courts", "")
+    renumber_round_courts(round_id, start_court=start_court, skip_courts=parse_skip_courts(skip_text))
+    db.commit()
+    detail = f"เริ่มสนาม {start_court}"
+    if skip_text.strip():
+        detail += f" · เว้น {skip_text.strip()}"
+    flash(f"จัดเลขสนามอัตโนมัติแล้ว ({detail})", "success")
+    return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#saved-round-{round_id}")
+
+
+@app.route("/rounds/<int:round_id>/fill-bye", methods=["POST"])
+@login_required
+def fill_bye_slot(round_id):
+    db = get_db()
+    round_row = db.execute(
+        """
+        SELECT r.*, t.id AS tournament_id
+        FROM tournament_rounds r
+        JOIN tournaments t ON t.id = r.tournament_id
+        WHERE r.id = ?
+        """,
+        (round_id,),
+    ).fetchone()
+
+    if not round_row:
+        flash("ไม่พบรอบแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+
+    tournament = get_tournament_for_user(round_row["tournament_id"], current_user())
+    if not tournament:
+        flash("คุณไม่มีสิทธิ์จัดการ", "error")
+        return redirect(url_for("dashboard"))
+
+    slot_id = request.form.get("slot_id", type=int)
+    team_name = request.form.get("team_name", "")
+    ok, message = add_team_into_bye_slot(round_id, slot_id, team_name)
+    if ok:
+        db.commit()
+        flash(message, "success")
+    else:
+        db.rollback()
+        flash(message, "error")
+
+    group_no = request.form.get("group_no", type=int)
+    anchor = f"#round-{round_row['round_no']}-group-{group_no}" if group_no else f"#saved-round-{round_id}"
+    return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + anchor)
 
 
 @app.route("/rounds/<int:round_id>/groups/<int:group_no>/scores", methods=["POST"])
@@ -1565,7 +1785,7 @@ def delete_tournament(tournament_id):
 @app.route("/init-db")
 def init_db_route():
     init_db()
-    return "Database initialized. Default super admin: dekchairukna / yagami1225"
+    return "Database initialized. Default super admin: dekchairukna / yagami125"
 
 
 
@@ -1574,3 +1794,4 @@ if __name__ == "__main__":
         init_db()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
