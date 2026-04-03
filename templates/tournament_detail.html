@@ -526,8 +526,10 @@
 
 <script>
     async function autosaveField(input) {
+        const isScore = input.classList.contains("autosave-score");
         const value = input.value.trim();
-        if (value !== "") {
+
+        if (isScore && value !== "") {
             const n = Number(value);
             if (Number.isNaN(n) || n < 0 || n > 13) {
                 alert("กรอกคะแนนได้ตั้งแต่ 0 ถึง 13");
@@ -548,7 +550,7 @@
         formData.append("slot_id", slotId);
         formData.append("group_no", groupNo);
         formData.append("stage_no", stageNo);
-        formData.append("score", input.classList.contains("autosave-score") ? input.value : "");
+        formData.append("score", isScore ? input.value : "");
         formData.append("court_name", courtName);
 
         try {
