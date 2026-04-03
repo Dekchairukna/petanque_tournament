@@ -183,7 +183,7 @@
                         {% if slot['is_bye'] %}
                         <input type="number" class="bye-input" value="0" disabled>
                         {% else %}
-                        <input type="number"  inputmode="numeric"
+                        <input 
                             class="autosave-score {% if s1.color == 'win' %}win-cell{% elif s1.color == 'loss' %}loss-cell{% endif %}"
                             data-round="{{ rv.round['id'] }}" data-slot="{{ slot['id'] }}"
                             data-group="{{ group.group_no }}" data-stage="1"
