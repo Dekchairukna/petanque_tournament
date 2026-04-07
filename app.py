@@ -1659,6 +1659,53 @@ def add_team_to_pool(tournament_id):
     flash("เพิ่มทีมเข้าคลังแล้ว", "success")
     return redirect(url_for("eliminated_pool", tournament_id=tournament_id))
 
+@app.route("/rounds/<int:round_id>/delete", methods=["POST"])
+@login_required
+def delete_round(round_id):
+    db = get_db()
+    user = current_user()
+
+    target_round = db.execute(
+        """
+        SELECT tr.*, t.owner_id
+        FROM tournament_rounds tr
+        JOIN tournaments t ON t.id = tr.tournament_id
+        WHERE tr.id = ?
+        """,
+        (round_id,),
+    ).fetchone()
+
+    if not target_round:
+        flash("ไม่พบรอบที่ต้องการลบ", "error")
+        return redirect(url_for("home"))
+
+    tournament = db.execute("SELECT * FROM tournaments WHERE id = ?", (target_round["tournament_id"],)).fetchone()
+    if not can_manage_tournament(user, tournament):
+        flash("คุณไม่มีสิทธิ์ลบรอบนี้", "error")
+        return redirect(url_for("view_tournament", tournament_id=target_round["tournament_id"]))
+
+    last_round = db.execute(
+        """
+        SELECT id, round_no
+        FROM tournament_rounds
+        WHERE tournament_id = ?
+        ORDER BY round_no DESC, id DESC
+        LIMIT 1
+        """,
+        (target_round["tournament_id"],),
+    ).fetchone()
+
+    if not last_round or last_round["id"] != round_id:
+        flash("ลบได้เฉพาะรอบล่าสุดเท่านั้น", "error")
+        return redirect(url_for("view_tournament", tournament_id=target_round["tournament_id"]))
+
+    db.execute("DELETE FROM round_scores WHERE round_id = ?", (round_id,))
+    db.execute("DELETE FROM round_slots WHERE round_id = ?", (round_id,))
+    db.execute("DELETE FROM tournament_rounds WHERE id = ?", (round_id,))
+    db.commit()
+
+    flash(f"ลบรอบ {target_round['round_name']} เรียบร้อยแล้ว", "success")
+    return redirect(url_for("view_tournament", tournament_id=target_round["tournament_id"]))
 
 @app.route("/tournaments/<int:tournament_id>/eliminated/create-new", methods=["POST"])
 @login_required
@@ -1792,6 +1839,6 @@ def init_db_route():
 if __name__ == "__main__":
     with app.app_context():
         init_db()
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
 

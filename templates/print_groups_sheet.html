@@ -1,249 +1,101 @@
-{% extends 'base.html' %}
-{% block content %}
-
 <div class="no-print toolbar">
     <button onclick="window.print()" class="btn btn-primary toolbar-btn">พิมพ์เอกสาร</button>
-    <a href="{{ url_for('view_tournament', tournament_id=tournament['id']) }}" class="btn btn-secondary toolbar-btn">กลับไปทัวร์นาเมนต์</a>
+    <a href="{{ url_for('view_tournament', tournament_id=tournament['id']) }}"
+        class="btn btn-secondary toolbar-btn">กลับไปทัวร์นาเมนต์</a>
 </div>
 
 {% for rv in round_views %}
-    {% for group in rv.group_views %}
-    <div class="print-page">
-        <div class="sheet-header">
-            <div class="logo-box">
-                <div class="fake-logo">LOGO</div>
-            </div>
-
-            <div class="title-box">
-                <div class="title-main">ตารางแบ่งสายการแข่งขัน</div>
-                <div class="title-sub">{{ tournament['name'] }}</div>
-                <div class="title-sub">{{ rv.round['round_name'] }} สาย {{ group.group_no }}</div>
-            </div>
-
-            <div class="logo-box">
-                <div class="fake-logo">LOGO</div>
-            </div>
+{% for group in rv.group_views %}
+<div class="print-page">
+    <div class="sheet-header">
+        <div class="logo-box">
+            <div class="fake-logo">LOGO</div>
         </div>
 
-        <div class="meta-row">
-            <div><strong>ประเภท:</strong> {{ competition_type_label(rv.round['round_type']) }}</div>
-            <div><strong>รอบ:</strong> {{ rv.round['round_name'] }}</div>
-            <div><strong>สาย:</strong> {{ group.group_no }}</div>
+        <div class="title-box">
+            <div class="title-main">ตารางแบ่งสายการแข่งขัน</div>
+            <div class="title-sub">{{ tournament['name'] }}</div>
+            <div class="title-sub">{{ rv.round['round_name'] }} สาย {{ group.group_no }}</div>
         </div>
 
-        <table class="bracket-table">
-            <thead>
-                <tr>
-                    <th rowspan="2" style="width:18%;">สนาม</th>
-                    <th rowspan="2" style="width:14%;">ลำดับที่</th>
-                    <th rowspan="2" style="width:40%;">รายชื่อทีม</th>
-                    {% if rv.round['round_type'] == 'double_knockout' %}
-                    <th colspan="3" style="width:28%;">แข่งขันครั้งที่</th>
-                    {% else %}
-                    <th colspan="1" style="width:28%;">แข่งขันครั้งที่</th>
-                    {% endif %}
-                </tr>
-                <tr>
-                    <th>1</th>
-                    {% if rv.round['round_type'] == 'double_knockout' %}
-                    <th>2</th>
-                    <th>3</th>
-                    {% endif %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for slot in group.slots %}
-                <tr>
-                    {% if loop.index0 % 2 == 0 %}
-                    <td class="center court-cell" rowspan="2">
-                        {{ group.slots[loop.index0]['court_name'] or '' }}
-                    </td>
-                    {% endif %}
-
-                    <td class="center">{{ slot['slot_no'] }}</td>
-                    <td class="team-col">
-                        {% if slot['team_name'] %}
-                            {{ slot['team_name'] }}
-                        {% else %}
-                            {{ slot['display_name'] }}
-                        {% endif %}
-                    </td>
-
-                    <td class="center score-cell">
-                        {{ rv.score_map.get((group.group_no, slot['slot_no'], 1), '') }}
-                    </td>
-                    {% if rv.round['round_type'] == 'double_knockout' %}
-                    <td class="center score-cell">
-                        {{ rv.score_map.get((group.group_no, slot['slot_no'], 2), '') }}
-                    </td>
-                    <td class="center score-cell">
-                        {{ rv.score_map.get((group.group_no, slot['slot_no'], 3), '') }}
-                    </td>
-                    {% endif %}
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        <div class="qualify-row">
-            {% if rv.round['round_type'] == 'double_knockout' %}
-            <div>ทีมที่เข้ารอบ 1 ...............................................................</div>
-            <div>ทีมที่เข้ารอบ 2 ...............................................................</div>
-            {% else %}
-            <div>ทีมผู้ชนะ .......................................................................</div>
-            {% endif %}
+        <div class="logo-box">
+            <div class="fake-logo">LOGO</div>
         </div>
     </div>
-    {% endfor %}
+
+    <div class="meta-row">
+        <div><strong>ประเภท:</strong> {{ competition_type_label(rv.round['round_type']) }}</div>
+        <div><strong>รอบ:</strong> {{ rv.round['round_name'] }}</div>
+        <div><strong>สาย:</strong> {{ group.group_no }}</div>
+    </div>
+
+    <table class="bracket-table">
+        <thead>
+            <tr>
+                <th rowspan="2" style="width:18%;">สนาม</th>
+                <th rowspan="2" style="width:14%;">ลำดับที่</th>
+                <th rowspan="2" style="width:40%;">รายชื่อทีม</th>
+                {% if rv.round['round_type'] == 'double_knockout' %}
+                <th colspan="3" style="width:28%;">แข่งขันครั้งที่</th>
+                {% else %}
+                <th colspan="1" style="width:28%;">แข่งขันครั้งที่</th>
+                {% endif %}
+            </tr>
+            <tr>
+                <th>1</th>
+                {% if rv.round['round_type'] == 'double_knockout' %}
+                <th>2</th>
+                <th>3</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for slot in group.slots %}
+            <tr>
+                {% if loop.index0 % 2 == 0 %}
+                <td class="center court-cell" rowspan="2">
+                    {{ group.slots[loop.index0]['court_name'] or '' }}
+                </td>
+                {% endif %}
+
+                <td class="center">{{ slot['slot_no'] }}</td>
+                <td class="team-col">
+                    {% if slot['team_name'] %}
+                    {{ slot['team_name'] }}
+                    {% else %}
+                    {{ slot['display_name'] }}
+                    {% endif %}
+                </td>
+
+                <td class="center score-cell">
+                    {{ rv.score_map.get((group.group_no, slot['slot_no'], 1), '') }}
+                </td>
+                {% if rv.round['round_type'] == 'double_knockout' %}
+                <td class="center score-cell">
+                    {{ rv.score_map.get((group.group_no, slot['slot_no'], 2), '') }}
+                </td>
+                <td class="center score-cell">
+                    {{ rv.score_map.get((group.group_no, slot['slot_no'], 3), '') }}
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="qualify-row">
+        {% if rv.round['round_type'] == 'double_knockout' %}
+        <div>ทีมที่เข้ารอบ 1 ...............................................................</div>
+        <div>ทีมที่เข้ารอบ 2 ...............................................................</div>
+        {% else %}
+        <div>ทีมผู้ชนะ .......................................................................</div>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
 {% endfor %}
 
 <style>
-nav, .navbar, .sidebar, header, footer {
-    display: none !important;
-}
-
-html, body {
-    background: white !important;
-    margin: 0;
-    padding: 0;
-}
-
-.toolbar {
-    text-align: center;
-    margin: 18px 0;
-}
-.toolbar-btn {
-    min-width: 75px;
-    height: 30px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 10px;
-    font-weight: 700;
-    margin: 0 6px;
-}
-
-@page {
-    size: A4 landscape;
-    margin: 10mm;
-}
-
-.print-page {
-    width: 277mm;
-    min-height: 190mm;
-    margin: 0 auto;
-    page-break-after: always;
-    break-after: page;
-    background: white;
-    box-sizing: border-box;
-    padding: 4mm 6mm;
-}
-
-.print-page:last-child {
-    page-break-after: auto;
-    break-after: auto;
-}
-
-.sheet-header {
-    display: grid;
-    grid-template-columns: 90px 1fr 90px;
-    align-items: center;
-    margin-bottom: 10px;
-}
-
-.logo-box {
-    text-align: center;
-}
-
-.fake-logo {
-    width: 64px;
-    height: 64px;
-    border: 2px solid #999;
-    border-radius: 50%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    color: #666;
-}
-
-.title-box {
-    text-align: center;
-}
-
-.title-main {
-    font-size: 35pt;
-    font-weight: 800;
-    line-height: 1.25;
-}
-
-.title-sub {
-    font-size: 20pt;
-    font-weight: 700;
-    line-height: 1.35;
-}
-
-.meta-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    margin: 8px 0 12px 0;
-    font-size: 11.5pt;
-    font-weight: 700;
-}
-
-.bracket-table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-    font-size: 13.5pt;
-}
-
-.bracket-table th,
-.bracket-table td {
-    border: 1.6px solid #222;
-    padding: 10px 8px;
-    vertical-align: middle;
-}
-
-.bracket-table th {
-    text-align: center;
-    font-weight: 800;
-}
-
-.center {
-    text-align: center;
-}
-
-.court-cell {
-    vertical-align: middle !important;
-}
-
-.team-col {
-    line-height: 1.35;
-    word-break: break-word;
-}
-
-.score-cell {
-    height: 42px;
-}
-
-.qualify-row {
-    margin-top: 18px;
-    display: flex;
-    justify-content: space-between;
-    gap: 24px;
-    font-size: 14pt;
-    font-weight: 700;
-}
-
-.qualify-row > div {
-    flex: 1;
-}
-
-@media print {
-    .no-print,
-    .btn,
     nav,
     .navbar,
     .sidebar,
@@ -252,19 +104,171 @@ html, body {
         display: none !important;
     }
 
+    html,
     body {
         background: white !important;
         margin: 0;
         padding: 0;
     }
 
-    .card {
-        border: none !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        background: transparent !important;
+    .toolbar {
+        text-align: center;
+        margin: 18px 0;
     }
-}
+
+    .toolbar-btn {
+        min-width: 75px;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        font-weight: 700;
+        margin: 0 6px;
+    }
+
+    @page {
+        size: A4 landscape;
+        margin: 10mm;
+    }
+
+    .print-page {
+        width: 277mm;
+        min-height: 190mm;
+        margin: 0 auto;
+        page-break-after: always;
+        break-after: page;
+        background: white;
+        box-sizing: border-box;
+        padding: 4mm 6mm;
+    }
+
+    .print-page:last-child {
+        page-break-after: auto;
+        break-after: auto;
+    }
+
+    .sheet-header {
+        display: grid;
+        grid-template-columns: 90px 1fr 90px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .logo-box {
+        text-align: center;
+    }
+
+    .fake-logo {
+        width: 64px;
+        height: 64px;
+        border: 2px solid #999;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: #666;
+    }
+
+    .title-box {
+        text-align: center;
+    }
+
+    .title-main {
+        font-size: 35pt;
+        font-weight: 800;
+        line-height: 1.25;
+    }
+
+    .title-sub {
+        font-size: 20pt;
+        font-weight: 700;
+        line-height: 1.35;
+    }
+
+    .meta-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 8px 0 12px 0;
+        font-size: 11.5pt;
+        font-weight: 700;
+    }
+
+    .bracket-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 13.5pt;
+    }
+
+    .bracket-table th,
+    .bracket-table td {
+        border: 1.6px solid #222;
+        padding: 10px 8px;
+        vertical-align: middle;
+    }
+
+    .bracket-table th {
+        text-align: center;
+        font-weight: 800;
+    }
+
+    .center {
+        text-align: center;
+    }
+
+    .court-cell {
+        vertical-align: middle !important;
+    }
+
+    .team-col {
+        line-height: 1.35;
+        word-break: break-word;
+    }
+
+    .score-cell {
+        height: 42px;
+    }
+
+    .qualify-row {
+        margin-top: 18px;
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        font-size: 14pt;
+        font-weight: 700;
+    }
+
+    .qualify-row>div {
+        flex: 1;
+    }
+
+    @media print {
+
+        .no-print,
+        .btn,
+        nav,
+        .navbar,
+        .sidebar,
+        header,
+        footer {
+            display: none !important;
+        }
+
+        body {
+            background: white !important;
+            margin: 0;
+            padding: 0;
+        }
+
+        .card {
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: transparent !important;
+        }
+    }
 </style>
-{% endblock %}

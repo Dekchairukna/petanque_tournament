@@ -74,10 +74,14 @@
 
 {% for rv in round_views %}
 <div class="card round-card" id="saved-round-{{ rv.round['id'] }}" style="padding:18px; margin-top:20px;">
-    <div class="round-title no-print" style="text-align:center; margin-bottom:18px;">
-        <span class="badge" style="background:#1a73e8; color:#fff; font-size:22px; padding:8px 18px;">
-            {{ rv.round['round_name'] }} - {{ competition_type_label(rv.round['round_type']) }}
-        </span>
+    <div class="round-header no-print">
+        <div class="round-title" style="text-align:center; margin-bottom:18px;">
+            <span class="badge" style="background:#1a73e8; color:#fff; font-size:22px; padding:8px 18px;">
+                {{ rv.round['round_name'] }} - {{ competition_type_label(rv.round['round_type']) }}
+            </span>
+        </div>
+
+
     </div>
 
     {% if can_manage %}
@@ -98,9 +102,17 @@
                 <button type="submit" class="btn btn-secondary system-btn">จัดเลขสนามอัตโนมัติ</button>
             </div>
         </form>
+      
+
     </div>
     {% endif %}
 
+  {% if can_manage %}
+        <form method="post" action="{{ url_for('delete_round', round_id=rv.round['id']) }}" class="delete-round-form"
+            onsubmit="return confirm('ยืนยันการลบรอบ {{ rv.round['round_name'] }} ? ลบได้เฉพาะรอบล่าสุดเท่านั้น');">
+            <button type="submit" class="btn action-btn btn-danger">ลบรอบนี้</button>
+        </form>
+        {% endif %}
 
     {% for group in rv.group_views %}
     <div class="group-box printable-group" id="round-{{ rv.round['round_no'] }}-group-{{ group.group_no }}"
@@ -160,30 +172,34 @@
                     <td>{{ slot['slot_no'] }}</td>
 
                     <td>
-                        {% if slot['team_name'] %}
-                        {{ slot['team_name'] }}
-                        {% else %}
-                        {{ slot['display_name'] }}
-                        {% endif %}
-                        {% if not slot['is_resolved'] and not slot['is_bye'] %}
-                        <span class="placeholder-tag no-print">รอผล</span>
-                        {% endif %}
-                        {% if slot['is_bye'] and can_manage %}
-                        <form method="post" action="{{ url_for('fill_bye_slot', round_id=rv.round['id']) }}"
-                            class="fill-x-form no-print">
-                            <input type="hidden" name="slot_id" value="{{ slot['id'] }}">
-                            <input type="hidden" name="group_no" value="{{ group.group_no }}">
-                            <input type="text" name="team_name" placeholder="แทน X ด้วยชื่อทีม" required>
-                            <button type="submit" class="btn btn-secondary">เพิ่มทีม</button>
-                        </form>
-                        {% endif %}
-                    </td>
+    <span class="team-name-text">
+        {% if slot['team_name'] %}
+        {{ slot['team_name'] }}
+        {% else %}
+        {{ slot['display_name'] }}
+        {% endif %}
+    </span>
+
+    {% if not slot['is_resolved'] and not slot['is_bye'] %}
+    <span class="placeholder-tag no-print">รอผล</span>
+    {% endif %}
+
+    {% if slot['is_bye'] and can_manage %}
+    <form method="post" action="{{ url_for('fill_bye_slot', round_id=rv.round['id']) }}"
+        class="fill-x-form no-print">
+        <input type="hidden" name="slot_id" value="{{ slot['id'] }}">
+        <input type="hidden" name="group_no" value="{{ group.group_no }}">
+        <input type="text" name="team_name" placeholder="แทน X ด้วยชื่อทีม" required>
+        <button type="submit" class="btn btn-secondary">เพิ่มทีม</button>
+    </form>
+    {% endif %}
+</td>
 
                     <td>
                         {% if slot['is_bye'] %}
                         <input type="number" class="bye-input" value="0" disabled>
                         {% else %}
-                        <input 
+                        <input
                             class="autosave-score {% if s1.color == 'win' %}win-cell{% elif s1.color == 'loss' %}loss-cell{% endif %}"
                             data-round="{{ rv.round['id'] }}" data-slot="{{ slot['id'] }}"
                             data-group="{{ group.group_no }}" data-stage="1"
@@ -309,6 +325,34 @@
 
     .btn-print:hover {
         background: #bae6fd !important;
+    }
+
+    .btn-danger {
+        background: #fee2e2 !important;
+        color: #b91c1c !important;
+        border-color: #fecaca !important;
+    }
+
+    .btn-danger:hover {
+        background: #fecaca !important;
+    }
+
+    .round-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+
+    .round-header .round-title {
+        flex: 1 1 auto;
+        margin-bottom: 0 !important;
+    }
+
+    .delete-round-form {
+        margin-left: auto;
     }
 
     /* ปุ่มระบบ */
@@ -494,33 +538,50 @@
     }
 
     .round-court-tools {
-    display:flex;
-    justify-content:flex-end;
-    margin:-4px 0 12px;
+        display: flex;
+        justify-content: flex-end;
+        margin: -4px 0 12px;
+    }
+
+    .round-court-form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-end;
+    }
+
+    .round-court-fields {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: flex-end;
+    }
+
+    .round-court-fields label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+        color: #374151;
+        font-weight: 700;
+    }
+
+    .round-court-fields input {
+        min-width: 120px;
+    }
+
+    .team-name-text {
+    display: inline-block;
+    font-size: 1.5rem;
+    font-weight: 800;
+    line-height: 1.3;
 }
-.round-court-form {
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-    align-items:flex-end;
-}
-.round-court-fields {
-    display:flex;
-    gap:10px;
-    flex-wrap:wrap;
-    align-items:flex-end;
-    justify-content:flex-end;
-}
-.round-court-fields label {
-    display:flex;
-    flex-direction:column;
-    gap:4px;
-    font-size:13px;
-    color:#374151;
-    font-weight:700;
-}
-.round-court-fields input {
-    min-width:120px;
+
+@media (max-width: 768px) {
+    .team-name-text {
+        font-size: 1.2rem;
+    }
 }
 </style>
 
