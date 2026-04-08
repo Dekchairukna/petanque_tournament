@@ -586,6 +586,13 @@
 </style>
 
 <script>
+    let latestSyncVersion = {{ sync_version|tojson }};
+    let pauseRemoteRefreshUntil = 0;
+
+    function markRecentlyEdited() {
+        pauseRemoteRefreshUntil = Date.now() + 1800;
+    }
+
     async function autosaveField(input) {
         const isScore = input.classList.contains("autosave-score");
         const value = input.value.trim();
@@ -624,17 +631,61 @@
                 alert(data.message || "บันทึกไม่สำเร็จ");
                 return;
             }
+            markRecentlyEdited();
+            if (data && data.ok) {
+                latestSyncVersion = String(Date.now());
+            }
         } catch (e) {
             console.error("autosave failed", e);
         }
     }
 
+    const autosaveTimers = new WeakMap();
+
     document.querySelectorAll(".autosave-score").forEach(input => {
-        input.addEventListener("change", () => autosaveField(input));
+        input.addEventListener("input", () => {
+            markRecentlyEdited();
+            clearTimeout(autosaveTimers.get(input));
+            autosaveTimers.set(input, setTimeout(() => autosaveField(input), 450));
+        });
+
+        input.addEventListener("blur", () => {
+            clearTimeout(autosaveTimers.get(input));
+            autosaveField(input);
+        });
     });
 
     document.querySelectorAll(".autosave-court").forEach(input => {
-        input.addEventListener("change", () => autosaveField(input));
+        input.addEventListener("change", () => {
+            markRecentlyEdited();
+            autosaveField(input);
+        });
     });
+
+    async function checkRemoteUpdates() {
+        if (Date.now() < pauseRemoteRefreshUntil) return;
+
+        const active = document.activeElement;
+        if (active && (active.classList.contains("autosave-score") || active.classList.contains("autosave-court"))) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`{{ url_for('tournament_sync_version', tournament_id=tournament['id']) }}`, {
+                headers: { "X-Requested-With": "XMLHttpRequest" }
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) return;
+
+            const serverVersion = data.version || "";
+            if (serverVersion !== (latestSyncVersion || "")) {
+                window.location.reload();
+            }
+        } catch (e) {
+            console.error("sync check failed", e);
+        }
+    }
+
+    setInterval(checkRemoteUpdates, 1500);
 </script>
 {% endblock %}

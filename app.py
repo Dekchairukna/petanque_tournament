@@ -778,6 +778,20 @@ def add_team_into_bye_slot(round_id, slot_id, team_name):
     )
     return True, "เพิ่มทีมลงแทน X แล้ว กรุณากรอกผลใหม่ของสายนี้"
 
+def get_tournament_sync_version(tournament_id):
+    db = get_db()
+    row = db.execute(
+        """
+        SELECT MAX(rs.updated_at) AS latest
+        FROM round_scores rs
+        JOIN tournament_rounds tr ON tr.id = rs.round_id
+        WHERE tr.tournament_id = ?
+        """,
+        (tournament_id,),
+    ).fetchone()
+    return row["latest"] if row and row["latest"] else ""
+
+
 def get_round_views(tournament_id):
     db = get_db()
     rounds = db.execute(
@@ -1312,11 +1326,13 @@ def view_tournament(tournament_id):
     user = current_user()
     can_manage = can_manage_tournament(user, tournament)
     round_views = get_round_views(tournament_id)
+    sync_version = get_tournament_sync_version(tournament_id)
     return render_template(
         "tournament_detail.html",
         tournament=tournament,
         round_views=round_views,
         can_manage=can_manage,
+        sync_version=sync_version,
     )
 
 @app.route("/tournaments/<int:tournament_id>/print-groups")
@@ -1347,6 +1363,20 @@ def print_groups_sheet(tournament_id):
         tournament=tournament,
         round_views=round_views,
     )
+
+
+@app.route("/tournaments/<int:tournament_id>/sync-version")
+def tournament_sync_version(tournament_id):
+    db = get_db()
+    tournament = db.execute(
+        "SELECT id FROM tournaments WHERE id = ?",
+        (tournament_id,),
+    ).fetchone()
+    if not tournament:
+        return {"ok": False, "message": "ไม่พบทัวร์นาเมนต์"}, 404
+
+    return {"ok": True, "version": get_tournament_sync_version(tournament_id)}
+
 
 
 @app.route("/rounds/<int:round_id>/autosave", methods=["POST"])
