@@ -159,7 +159,7 @@
                         {% if can_manage %}
                         <input type="text" class="court-input autosave-court" name="court_{{ slot['id'] }}"
                             data-round="{{ rv.round['id'] }}" data-slot="{{ slot['id'] }}"
-                            data-group="{{ group.group_no }}" value="{{ slot['court_name'] or '' }}" placeholder="สนาม">
+                            data-group="{{ group.group_no }}" data-pair-start="{{ slot['display_slot_no'] }}" value="{{ slot['court_name'] or '' }}" placeholder="สนาม">
                         {% else %}
                         {{ slot['court_name'] or '' }}
                         {% endif %}
@@ -169,7 +169,7 @@
                         style="background:#f8fafc; color:#9ca3af; text-align:center;">-</td>
                     {% endif %}
 
-                    <td>{{ slot['slot_no'] }}</td>
+                    <td>{{ slot['display_slot_no'] }}</td>
 
                     <td>
     <span class="team-name-text">
@@ -199,10 +199,10 @@
                         {% if slot['is_bye'] %}
                         <input type="number" class="bye-input" value="0" disabled>
                         {% else %}
-                        <input
+                        <input type="number" min="0" max="13" inputmode="numeric"
                             class="autosave-score {% if s1.color == 'win' %}win-cell{% elif s1.color == 'loss' %}loss-cell{% endif %}"
                             data-round="{{ rv.round['id'] }}" data-slot="{{ slot['id'] }}"
-                            data-group="{{ group.group_no }}" data-stage="1"
+                            data-slotno="{{ slot['display_slot_no'] }}" data-group="{{ group.group_no }}" data-stage="1"
                             value="{{ rv.score_map.get((group.group_no, slot['slot_no'], 1), '') }}">
                         {% endif %}
                     </td>
@@ -215,7 +215,7 @@
                         <input type="number" min="0" max="13" inputmode="numeric"
                             class="autosave-score {% if s2.color == 'win' %}win-cell{% elif s2.color == 'loss' %}loss-cell{% endif %}"
                             data-round="{{ rv.round['id'] }}" data-slot="{{ slot['id'] }}"
-                            data-group="{{ group.group_no }}" data-stage="2"
+                            data-slotno="{{ slot['display_slot_no'] }}" data-group="{{ group.group_no }}" data-stage="2"
                             value="{{ rv.score_map.get((group.group_no, slot['slot_no'], 2), '') }}" {% if not
                             stage_can_edit(rv.round['round_type'], group.slots, 2, slot['slot_no'], rv.score_map)
                             %}disabled{% endif %}>
@@ -228,7 +228,7 @@
                         <input type="number" min="0" max="13" inputmode="numeric"
                             class="autosave-score {% if s3.color == 'win' %}win-cell{% elif s3.color == 'loss' %}loss-cell{% endif %}"
                             data-round="{{ rv.round['id'] }}" data-slot="{{ slot['id'] }}"
-                            data-group="{{ group.group_no }}" data-stage="3"
+                            data-slotno="{{ slot['display_slot_no'] }}" data-group="{{ group.group_no }}" data-stage="3"
                             value="{{ rv.score_map.get((group.group_no, slot['slot_no'], 3), '') }}" {% if not
                             stage_can_edit(rv.round['round_type'], group.slots, 3, slot['slot_no'], rv.score_map)
                             %}disabled{% endif %}>
@@ -242,12 +242,56 @@
 
         <div style="margin-top:14px; font-size:22px; font-weight:800; line-height:1.8;">
             {% if rv.round['round_type'] == 'double_knockout' %}
-            <div>🥇 อันดับ 1: {{ group.result['winner']['team_name'] if group.result['winner'] else '...' }}</div>
+            <div>🥇 อันดับ 1: {{ group.result['winner']['team_name'] if group.result['winner'] else '...' }} {% if group.result['manual_override'] %}<span class="manual-badge">กำหนดเอง</span>{% endif %}</div>
             <div>🥈 อันดับ 2: {{ group.result['second']['team_name'] if group.result['second'] else '...' }}</div>
             {% else %}
-            <div>🥇 ผู้ชนะ: {{ group.result['winner']['team_name'] if group.result['winner'] else '...' }}</div>
+            <div>🥇 ผู้ชนะ: {{ group.result['winner']['team_name'] if group.result['winner'] else '...' }} {% if group.result['manual_override'] %}<span class="manual-badge">กำหนดเอง</span>{% endif %}</div>
             {% endif %}
         </div>
+
+        {% if can_manage %}
+        <div class="manual-ranking-box no-print">
+            <form method="post" action="{{ url_for('save_manual_group_rankings', round_id=rv.round['id'], group_no=group.group_no) }}" class="manual-ranking-form">
+                <div class="manual-ranking-title">เลือกทีมเข้ารอบโดยไม่กรอกคะแนน</div>
+                <div class="manual-ranking-fields">
+                    <label>
+                        <span>อันดับ 1</span>
+                        <select name="winner_slot_no" required>
+                            <option value="">-- เลือกทีม --</option>
+                            {% for option in group.manual_options %}
+                            <option value="{{ option['slot_no'] }}" {% if group.manual_override and group.manual_override['winner_slot_no'] == option['slot_no'] %}selected{% endif %}>
+                                {{ option['team_name'] or option['display_name'] }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </label>
+
+                    {% if rv.round['round_type'] == 'double_knockout' %}
+                    <label>
+                        <span>อันดับ 2</span>
+                        <select name="second_slot_no" required>
+                            <option value="">-- เลือกทีม --</option>
+                            {% for option in group.manual_options %}
+                            <option value="{{ option['slot_no'] }}" {% if group.manual_override and group.manual_override['second_slot_no'] == option['slot_no'] %}selected{% endif %}>
+                                {{ option['team_name'] or option['display_name'] }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    {% endif %}
+                </div>
+                <div class="manual-ranking-actions">
+                    <button type="submit" class="btn">บันทึกอันดับ</button>
+                </div>
+            </form>
+
+            {% if group.manual_override %}
+            <form method="post" action="{{ url_for('reset_manual_group_rankings', round_id=rv.round['id'], group_no=group.group_no) }}" class="manual-reset-form">
+                <button type="submit" class="btn btn-danger">ล้างค่ากำหนดเอง</button>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
     {% endfor %}
 </div>
@@ -461,6 +505,73 @@
         min-width: 120px;
     }
 
+    .manual-ranking-box {
+        margin-top: 14px;
+        padding: 12px;
+        border: 1px solid #dbeafe;
+        background: #f8fbff;
+        border-radius: 12px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+    }
+
+    .manual-ranking-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        flex: 1 1 520px;
+    }
+
+    .manual-ranking-title {
+        font-size: 14px;
+        font-weight: 800;
+        color: #1d4ed8;
+    }
+
+    .manual-ranking-fields {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .manual-ranking-fields label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 220px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #374151;
+    }
+
+    .manual-ranking-fields select {
+        padding: 10px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        background: #fff;
+    }
+
+    .manual-ranking-actions,
+    .manual-reset-form {
+        display: flex;
+        align-items: center;
+    }
+
+    .manual-badge {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 10px;
+        font-size: 12px;
+        font-weight: 800;
+        border-radius: 999px;
+        background: #dbeafe;
+        color: #1d4ed8;
+        vertical-align: middle;
+    }
+
     @media print {
         @page {
             size: A4 portrait;
@@ -571,6 +682,73 @@
         min-width: 120px;
     }
 
+    .manual-ranking-box {
+        margin-top: 14px;
+        padding: 12px;
+        border: 1px solid #dbeafe;
+        background: #f8fbff;
+        border-radius: 12px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+    }
+
+    .manual-ranking-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        flex: 1 1 520px;
+    }
+
+    .manual-ranking-title {
+        font-size: 14px;
+        font-weight: 800;
+        color: #1d4ed8;
+    }
+
+    .manual-ranking-fields {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .manual-ranking-fields label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 220px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #374151;
+    }
+
+    .manual-ranking-fields select {
+        padding: 10px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        background: #fff;
+    }
+
+    .manual-ranking-actions,
+    .manual-reset-form {
+        display: flex;
+        align-items: center;
+    }
+
+    .manual-badge {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 10px;
+        font-size: 12px;
+        font-weight: 800;
+        border-radius: 999px;
+        background: #dbeafe;
+        color: #1d4ed8;
+        vertical-align: middle;
+    }
+
     .team-name-text {
     display: inline-block;
     font-size: 1.5rem;
@@ -586,6 +764,36 @@
 </style>
 
 <script>
+    const tournamentId = {{ tournament['id']|tojson }};
+    const socket = typeof io !== "undefined" ? io() : null;
+    let socketReady = false;
+    let pauseRemoteRefreshUntil = 0;
+
+    function markRecentlyEdited() {
+        pauseRemoteRefreshUntil = Date.now() + 1800;
+    }
+
+    function getClientSid() {
+        return socket && socket.id ? socket.id : "";
+    }
+
+    function applyRemoteCourtUpdate(payload) {
+        const selector = `.autosave-court[data-round="${payload.round_id}"][data-group="${payload.group_no}"][data-pair-start="${payload.pair_start}"]`;
+        const courtInput = document.querySelector(selector);
+        if (courtInput) {
+            courtInput.value = payload.court_name || "";
+        }
+    }
+
+    function applyRemoteScoreUpdate(payload) {
+        if (!payload.stage_no || !payload.slot_no) return;
+        const selector = `.autosave-score[data-round="${payload.round_id}"][data-group="${payload.group_no}"][data-slotno="${payload.slot_no}"][data-stage="${payload.stage_no}"]`;
+        const scoreInput = document.querySelector(selector);
+        if (scoreInput) {
+            scoreInput.value = payload.score === null || payload.score === undefined ? "" : payload.score;
+        }
+    }
+
     async function autosaveField(input) {
         const isScore = input.classList.contains("autosave-score");
         const value = input.value.trim();
@@ -604,8 +812,12 @@
         const groupNo = input.dataset.group;
         const stageNo = input.dataset.stage || "";
         const row = input.closest("tr");
-        const courtInput = row.querySelector(".autosave-court");
-        const courtName = courtInput ? courtInput.value : "";
+        let courtInput = row.querySelector(".autosave-court");
+        if (!courtInput) {
+            const pairStart = Number(input.dataset.slotno || 0) % 2 === 0 ? Number(input.dataset.slotno) - 1 : Number(input.dataset.slotno || 0);
+            courtInput = document.querySelector(`.autosave-court[data-round="${roundId}"][data-group="${groupNo}"][data-pair-start="${pairStart}"]`);
+        }
+        const courtName = courtInput ? courtInput.value.trim() : "";
 
         const formData = new FormData();
         formData.append("slot_id", slotId);
@@ -613,6 +825,7 @@
         formData.append("stage_no", stageNo);
         formData.append("score", isScore ? input.value : "");
         formData.append("court_name", courtName);
+        formData.append("client_sid", getClientSid());
 
         try {
             const res = await fetch(`/rounds/${roundId}/autosave`, {
@@ -624,17 +837,63 @@
                 alert(data.message || "บันทึกไม่สำเร็จ");
                 return;
             }
+            markRecentlyEdited();
         } catch (e) {
             console.error("autosave failed", e);
         }
     }
 
+    const autosaveTimers = new WeakMap();
+
     document.querySelectorAll(".autosave-score").forEach(input => {
-        input.addEventListener("change", () => autosaveField(input));
+        input.addEventListener("input", () => {
+            markRecentlyEdited();
+            clearTimeout(autosaveTimers.get(input));
+            autosaveTimers.set(input, setTimeout(() => autosaveField(input), 350));
+        });
+
+        input.addEventListener("blur", () => {
+            clearTimeout(autosaveTimers.get(input));
+            autosaveField(input);
+        });
     });
 
     document.querySelectorAll(".autosave-court").forEach(input => {
-        input.addEventListener("change", () => autosaveField(input));
+        input.addEventListener("change", () => {
+            markRecentlyEdited();
+            autosaveField(input);
+        });
     });
+
+    if (socket) {
+        socket.on("connect", () => {
+            socketReady = true;
+            socket.emit("join_tournament", { tournament_id: tournamentId });
+        });
+
+        socket.on("score_updated", (payload) => {
+            if (!payload || Number(payload.tournament_id) !== Number(tournamentId)) return;
+            if (payload.client_sid && payload.client_sid === getClientSid()) return;
+
+            const active = document.activeElement;
+            if (active && (active.classList.contains("autosave-score") || active.classList.contains("autosave-court"))) {
+                return;
+            }
+
+            applyRemoteCourtUpdate(payload);
+            applyRemoteScoreUpdate(payload);
+            markRecentlyEdited();
+            setTimeout(() => window.location.reload(), 250);
+        });
+
+        socket.on("tournament_reload", (payload) => {
+            if (!payload || Number(payload.tournament_id) !== Number(tournamentId)) return;
+            const active = document.activeElement;
+            if (active && (active.classList.contains("autosave-score") || active.classList.contains("autosave-court"))) {
+                return;
+            }
+            window.location.reload();
+        });
+    }
 </script>
 {% endblock %}

@@ -8,6 +8,7 @@ from datetime import datetime
 from functools import wraps
 
 from flask import Flask, flash, g, redirect, render_template, request, session, url_for
+from flask_socketio import SocketIO, emit, join_room
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -15,6 +16,7 @@ DATABASE = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "tournament.db"))
 
 app = Flask(__name__)
 app.secret_key = "change-this-secret-key"
+socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
 
 # ------------------------- database -------------------------
@@ -157,6 +159,17 @@ def init_db():
             UNIQUE(tournament_id, team_name),
             FOREIGN KEY(tournament_id) REFERENCES tournaments(id)
         );
+
+        CREATE TABLE IF NOT EXISTS manual_group_rankings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_id INTEGER NOT NULL,
+            group_no INTEGER NOT NULL,
+            winner_slot_no INTEGER,
+            second_slot_no INTEGER,
+            updated_at TEXT NOT NULL,
+            UNIQUE(round_id, group_no),
+            FOREIGN KEY(round_id) REFERENCES tournament_rounds(id)
+        );
         """
     )
     db.commit()
@@ -251,11 +264,17 @@ def consume_quota(user_id):
 
 
 # ------------------------- general helpers -------------------------
+THAI_DIGITS_TRANS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+
 def get_base_name(team_name):
-    cleaned = re.sub(r"\s+", " ", team_name.strip())
-    cleaned = re.sub(r"[0-9]+$", "", cleaned)
-    cleaned = re.sub(r"[\-–_]+$", "", cleaned).strip()
-    return cleaned.lower() or team_name.strip().lower()
+    raw = (team_name or "").strip().translate(THAI_DIGITS_TRANS)
+    cleaned = re.sub(r"\s+", " ", raw)
+    cleaned = re.sub(r"[\(\[\{]?\s*[0-9]+\s*[\)\]\}]?$", "", cleaned)
+    cleaned = re.sub(r"(?:\s|[-–_])+(?:[a-zA-Z]|[0-9]+)$", "", cleaned)
+    cleaned = re.sub(r"[\-–_]+$", "", cleaned).strip(" -_–")
+    normalized = re.sub(r"\s+", " ", cleaned).strip().lower()
+    return normalized or raw.lower()
 
 
 def competition_type_label(value):
@@ -325,57 +344,118 @@ def calculate_group_sizes(team_count, manual_group_count=None):
     return sizes
 
 
+def reorder_groups_to_push_byes_last(groups):
+    indexed_groups = list(enumerate(groups))
+    indexed_groups.sort(
+        key=lambda item: (
+            sum(1 for name in item[1] if str(name).strip().upper() == "X"),
+            item[0],
+        )
+    )
+    return [group for _, group in indexed_groups]
+
+
+def _first_match_pairs_for_capacity(capacity):
+    if capacity >= 4:
+        return ((0, 1), (2, 3))
+    if capacity == 3:
+        return ((0, 1),)
+    if capacity == 2:
+        return ((0, 1),)
+    return tuple()
+
+
+# วางลำดับทีมในสายเพื่อเลี่ยงชนกันตั้งแต่แมตช์แรกให้มากที่สุด
+# โดยเฉพาะกรณีที่จำนวนสายไม่พอและทีมชื่อฐานเดียวกันต้องอยู่สายเดียวกัน
+# จะพยายามแยกให้อยู่คนละคู่ก่อน
+
+def arrange_group_for_first_round(group, capacity):
+    if len(group) <= 1:
+        return list(group)
+
+    preferred_orders = []
+    if capacity >= 4:
+        preferred_orders = [
+            (0, 2, 1, 3),
+            (0, 2, 3, 1),
+            (0, 1, 2, 3),
+            (0, 3, 1, 2),
+            (0, 3, 2, 1),
+            (0, 1, 3, 2),
+        ]
+    elif capacity == 3:
+        preferred_orders = [
+            (0, 2, 1),
+            (1, 2, 0),
+            (2, 0, 1),
+            (0, 1, 2),
+            (1, 0, 2),
+            (2, 1, 0),
+        ]
+    else:
+        preferred_orders = [tuple(range(len(group)))]
+
+    bases = [get_base_name(name) for name in group]
+    pair_indexes = _first_match_pairs_for_capacity(capacity)
+
+    def score(order):
+        ordered_bases = [bases[i] for i in order]
+        same_pair_penalty = 0
+        same_group_penalty = len(ordered_bases) - len(set(ordered_bases))
+        for a, b in pair_indexes:
+            if a < len(ordered_bases) and b < len(ordered_bases) and ordered_bases[a] == ordered_bases[b]:
+                same_pair_penalty += 1
+        return (same_pair_penalty, same_group_penalty)
+
+    best_order = min(preferred_orders, key=score)
+    return [group[i] for i in best_order]
+
+
 def smart_draw_groups(team_names, group_sizes, avoid_same=True):
     teams = [t.strip() for t in team_names if t.strip()]
     random.shuffle(teams)
 
-    if avoid_same:
-        base_map = defaultdict(list)
+    if not avoid_same:
+        groups = [[] for _ in group_sizes]
+        capacities = list(group_sizes)
         for team in teams:
-            base_map[get_base_name(team)].append(team)
+            for gi in range(len(groups)):
+                if len(groups[gi]) < capacities[gi]:
+                    groups[gi].append(team)
+                    break
+        return [arrange_group_for_first_round(group, capacity) for group, capacity in zip(groups, capacities)]
 
-        ordered = []
-        base_keys = sorted(base_map.keys(), key=lambda k: len(base_map[k]), reverse=True)
-        max_len = max(len(v) for v in base_map.values()) if base_map else 0
-        for i in range(max_len):
-            for key in base_keys:
-                if i < len(base_map[key]):
-                    ordered.append(base_map[key][i])
-        teams = ordered
+    team_objects = [{"name": team, "base": get_base_name(team)} for team in teams]
+    base_counts = defaultdict(int)
+    for item in team_objects:
+        base_counts[item["base"]] += 1
+
+    team_objects.sort(key=lambda item: (base_counts[item["base"]], random.random()), reverse=True)
 
     groups = [[] for _ in group_sizes]
     capacities = list(group_sizes)
 
-    for team in teams:
-        placed = False
-        preferred_order = list(range(len(groups)))
-        random.shuffle(preferred_order)
-
-        if avoid_same:
-            preferred_order.sort(
-                key=lambda gi: any(get_base_name(team) == get_base_name(existing) for existing in groups[gi])
-            )
-
-        for gi in preferred_order:
-            if len(groups[gi]) >= capacities[gi]:
-                continue
-            if avoid_same and any(get_base_name(team) == get_base_name(existing) for existing in groups[gi]):
-                continue
-            groups[gi].append(team)
-            placed = True
-            break
-
-        if not placed:
-            for gi in preferred_order:
-                if len(groups[gi]) < capacities[gi]:
-                    groups[gi].append(team)
-                    placed = True
-                    break
-
-        if not placed:
+    for item in team_objects:
+        available = [gi for gi in range(len(groups)) if len(groups[gi]) < capacities[gi]]
+        if not available:
             raise ValueError("ไม่สามารถจัดสายได้ กรุณาลองใหม่")
 
-    return groups
+        def rank_group(gi):
+            existing_bases = [member["base"] for member in groups[gi]]
+            same_base_count = existing_bases.count(item["base"])
+            size_penalty = len(groups[gi])
+            capacity_penalty = capacities[gi]
+            return (same_base_count, size_penalty, capacity_penalty, random.random())
+
+        best_group = min(available, key=rank_group)
+        groups[best_group].append(item)
+
+    arranged_groups = []
+    for group, capacity in zip(groups, capacities):
+        arranged = arrange_group_for_first_round([item["name"] for item in group], capacity)
+        arranged_groups.append(arranged)
+
+    return arranged_groups
 
 
 # ------------------------- round helpers -------------------------
@@ -513,7 +593,54 @@ def apply_bye_auto_scores(round_type, slots, score_map):
     return score_map
 
 
-def compute_group_results(round_type, slots, score_map):
+def build_manual_result(round_type, slots, manual_override=None):
+    if not manual_override:
+        return None
+
+    slots_by_no = {slot["slot_no"]: slot for slot in slots}
+
+    def valid_pick(slot_no):
+        slot = slots_by_no.get(slot_no)
+        if not slot or slot["is_bye"]:
+            return None
+        return slot
+
+    winner = valid_pick(manual_override.get("winner_slot_no"))
+    second = valid_pick(manual_override.get("second_slot_no")) if round_type == "double_knockout" else None
+
+    if round_type == "knockout":
+        if not winner:
+            return None
+        eliminated = [slot for slot in slots if not slot["is_bye"] and slot["slot_no"] != winner["slot_no"]]
+        return {
+            "winner": winner,
+            "second": None,
+            "qualified": [winner],
+            "eliminated": eliminated,
+            "complete": True,
+            "manual_override": True,
+        }
+
+    if not winner or not second or winner["slot_no"] == second["slot_no"]:
+        return None
+
+    qualified_slots = {winner["slot_no"], second["slot_no"]}
+    eliminated = [slot for slot in slots if not slot["is_bye"] and slot["slot_no"] not in qualified_slots]
+    return {
+        "winner": winner,
+        "second": second,
+        "qualified": [winner, second],
+        "eliminated": eliminated,
+        "complete": True,
+        "manual_override": True,
+    }
+
+
+def compute_group_results(round_type, slots, score_map, manual_override=None):
+    manual_result = build_manual_result(round_type, slots, manual_override)
+    if manual_result:
+        return manual_result
+
     slots_by_no = {slot["slot_no"]: slot for slot in slots}
     score_map = apply_bye_auto_scores(round_type, slots, dict(score_map))
 
@@ -527,6 +654,7 @@ def compute_group_results(round_type, slots, score_map):
             "qualified": [winner] if winner and not winner["is_bye"] else [],
             "eliminated": [loser] if loser and not loser["is_bye"] else [],
             "complete": winner is not None,
+            "manual_override": False,
         }
 
     qf1 = decide_pair(slots_by_no.get(1), slots_by_no.get(2), 1, score_map)
@@ -560,6 +688,7 @@ def compute_group_results(round_type, slots, score_map):
         "qualified": qualified,
         "eliminated": eliminated,
         "complete": bool(top1 and top2),
+        "manual_override": False,
     }
 
 
@@ -778,6 +907,52 @@ def add_team_into_bye_slot(round_id, slot_id, team_name):
     )
     return True, "เพิ่มทีมลงแทน X แล้ว กรุณากรอกผลใหม่ของสายนี้"
 
+def get_tournament_sync_version(tournament_id):
+    db = get_db()
+    row = db.execute(
+        """
+        SELECT MAX(rs.updated_at) AS latest
+        FROM round_scores rs
+        JOIN tournament_rounds tr ON tr.id = rs.round_id
+        WHERE tr.tournament_id = ?
+        """,
+        (tournament_id,),
+    ).fetchone()
+    return row["latest"] if row and row["latest"] else ""
+
+
+def emit_score_update(tournament_id, payload):
+    socketio.emit('score_updated', payload, to=f'tournament_{tournament_id}')
+
+
+def emit_tournament_reload(tournament_id, reason='reload'):
+    socketio.emit('tournament_reload', {'tournament_id': tournament_id, 'reason': reason, 'updated_at': now_str()}, to=f'tournament_{tournament_id}')
+
+
+@socketio.on('join_tournament')
+def on_join_tournament(data):
+    tournament_id = (data or {}).get('tournament_id')
+    if not tournament_id:
+        return
+    room = f'tournament_{tournament_id}'
+    join_room(room)
+    emit('joined_tournament', {'ok': True, 'room': room, 'tournament_id': tournament_id})
+
+
+def get_manual_group_map(round_id):
+    rows = get_db().execute(
+        "SELECT * FROM manual_group_rankings WHERE round_id = ?",
+        (round_id,),
+    ).fetchall()
+    return {
+        row["group_no"]: {
+            "winner_slot_no": row["winner_slot_no"],
+            "second_slot_no": row["second_slot_no"],
+        }
+        for row in rows
+    }
+
+
 def get_round_views(tournament_id):
     db = get_db()
     rounds = db.execute(
@@ -801,11 +976,16 @@ def get_round_views(tournament_id):
             (rnd["id"],),
         ).fetchall()
         base_score_map = build_round_score_map(scores)
+        manual_group_map = get_manual_group_map(rnd["id"])
 
         group_views = []
         merged_score_map = dict(base_score_map)
+        display_counter = 1
 
         for group_no, group_slots in grouped.items():
+            for slot in group_slots:
+                slot["display_slot_no"] = display_counter
+                display_counter += 1
             for idx in range(0, len(group_slots), 2):
                 pair_slots = group_slots[idx:idx + 2]
                 has_bye = any(slot["is_bye"] for slot in pair_slots)
@@ -818,14 +998,18 @@ def get_round_views(tournament_id):
             local_score_map = apply_bye_auto_scores(rnd["round_type"], group_slots, dict(base_score_map))
             merged_score_map.update(local_score_map)
 
-            res = compute_group_results(rnd["round_type"], group_slots, local_score_map)
+            manual_override = manual_group_map.get(group_no)
+            res = compute_group_results(rnd["round_type"], group_slots, local_score_map, manual_override=manual_override)
             stage_state = build_stage_locks(rnd["round_type"], group_slots, local_score_map)
+            manual_options = [slot for slot in group_slots if not slot["is_bye"]]
 
             group_views.append({
                 "group_no": group_no,
                 "slots": group_slots,
                 "result": res,
                 "stage_state": stage_state,
+                "manual_override": manual_override,
+                "manual_options": manual_options,
             })
 
         views.append({
@@ -930,6 +1114,8 @@ def create_next_round_from_round_view(tournament, round_view, target_round_type,
     names_for_draw = [p["display_name"] for p in participants]
 
     if target_round_type == "double_knockout":
+        if len(names_for_draw) < 3:
+            raise ValueError("Double knockout ต้องมีอย่างน้อย 3 ทีม")
         fill_value = 4
         group_count = manual_group_count if manual_group_count and manual_group_count > 0 else max(1, math.ceil(len(names_for_draw) / 4))
         group_sizes = [4] * group_count
@@ -939,6 +1125,11 @@ def create_next_round_from_round_view(tournament, round_view, target_round_type,
         group_sizes = [2] * group_count
 
     random_groups = smart_draw_groups(names_for_draw, group_sizes, avoid_same=separate_same)
+    if target_round_type == "double_knockout":
+        for group in random_groups:
+            while len(group) < 4:
+                group.append("X")
+        random_groups = reorder_groups_to_push_byes_last(random_groups)
 
     round_no = get_next_round_no(tournament_id)
     cur = db.execute(
@@ -1245,11 +1436,11 @@ def create_tournament():
             for g in groups:
                 while len(g) < 4:
                     g.append("X")
+            groups = reorder_groups_to_push_byes_last(groups)
             qualify_per_group = 2
         else:
-            shuffled = teams[:]
-            random.shuffle(shuffled)
-            groups = [shuffled[i:i + 2] for i in range(0, len(shuffled), 2)]
+            group_count = manual_group_count if manual_group_count and manual_group_count > 0 else max(1, math.ceil(len(teams) / 2))
+            groups = smart_draw_groups(teams, [2] * group_count, avoid_same=bool(avoid_same))
             for g in groups:
                 while len(g) < 2:
                     g.append("X")
@@ -1312,11 +1503,13 @@ def view_tournament(tournament_id):
     user = current_user()
     can_manage = can_manage_tournament(user, tournament)
     round_views = get_round_views(tournament_id)
+    sync_version = get_tournament_sync_version(tournament_id)
     return render_template(
         "tournament_detail.html",
         tournament=tournament,
         round_views=round_views,
         can_manage=can_manage,
+        sync_version=sync_version,
     )
 
 @app.route("/tournaments/<int:tournament_id>/print-groups")
@@ -1349,6 +1542,20 @@ def print_groups_sheet(tournament_id):
     )
 
 
+@app.route("/tournaments/<int:tournament_id>/sync-version")
+def tournament_sync_version(tournament_id):
+    db = get_db()
+    tournament = db.execute(
+        "SELECT id FROM tournaments WHERE id = ?",
+        (tournament_id,),
+    ).fetchone()
+    if not tournament:
+        return {"ok": False, "message": "ไม่พบทัวร์นาเมนต์"}, 404
+
+    return {"ok": True, "version": get_tournament_sync_version(tournament_id)}
+
+
+
 @app.route("/rounds/<int:round_id>/autosave", methods=["POST"])
 @login_required
 def autosave_round_score(round_id):
@@ -1376,6 +1583,7 @@ def autosave_round_score(round_id):
     stage_no = request.form.get("stage_no")
     score_raw = request.form.get("score", "")
     court_name = request.form.get("court_name", "").strip()
+    client_sid = request.form.get("client_sid", "").strip()
 
     if not slot_id or not group_no:
         return {"ok": False, "message": "ข้อมูลไม่ครบ"}, 400
@@ -1397,17 +1605,32 @@ def autosave_round_score(round_id):
     ).fetchall()
 
     pair_start = slot["slot_no"] if slot["slot_no"] % 2 == 1 else slot["slot_no"] - 1
-    db.execute(
-        """
-        UPDATE round_slots
-        SET court_name = ?
-        WHERE round_id = ? AND group_no = ? AND slot_no IN (?, ?)
-        """,
-        (court_name or None, round_id, int(group_no), pair_start, pair_start + 1),
-    )
 
     if stage_no in (None, ""):
+        db.execute(
+            """
+            UPDATE round_slots
+            SET court_name = ?
+            WHERE round_id = ? AND group_no = ? AND slot_no IN (?, ?)
+            """,
+            (court_name or None, round_id, int(group_no), pair_start, pair_start + 1),
+        )
         db.commit()
+        emit_score_update(
+            round_row["tournament_id"],
+            {
+                "tournament_id": round_row["tournament_id"],
+                "round_id": round_id,
+                "group_no": int(group_no),
+                "pair_start": int(pair_start),
+                "stage_no": None,
+                "slot_id": int(slot_id),
+                "court_name": court_name or None,
+                "score": None,
+                "client_sid": client_sid or None,
+                "updated_at": now_str(),
+            },
+        )
         return {"ok": True, "message": "บันทึกเลขสนามแล้ว"}
 
     score_rows = db.execute(
@@ -1446,6 +1669,23 @@ def autosave_round_score(round_id):
         )
 
     db.commit()
+    emit_score_update(
+        round_row["tournament_id"],
+        {
+            "tournament_id": round_row["tournament_id"],
+            "round_id": round_id,
+            "group_no": int(group_no),
+            "pair_start": int(pair_start),
+            "stage_no": stage_no_int,
+            "slot_id": int(slot_id),
+            "slot_no": int(slot["slot_no"]),
+            "court_name": court_name or None,
+            "score": "" if score_raw == "" else int(score_raw),
+            "client_sid": client_sid or None,
+            "updated_at": now_str(),
+        },
+    )
+    emit_tournament_reload(round_row["tournament_id"], reason='score_saved')
     return {"ok": True, "message": "บันทึกแล้ว"}
 
 
@@ -1478,6 +1718,7 @@ def renumber_courts(round_id):
     skip_text = request.form.get("skip_courts", "")
     renumber_round_courts(round_id, start_court=start_court, skip_courts=parse_skip_courts(skip_text))
     db.commit()
+    emit_tournament_reload(round_row["tournament_id"], reason='renumber_courts')
     detail = f"เริ่มสนาม {start_court}"
     if skip_text.strip():
         detail += f" · เว้น {skip_text.strip()}"
@@ -1513,6 +1754,7 @@ def fill_bye_slot(round_id):
     ok, message = add_team_into_bye_slot(round_id, slot_id, team_name)
     if ok:
         db.commit()
+        emit_tournament_reload(round_row["tournament_id"], reason='fill_bye')
         flash(message, "success")
     else:
         db.rollback()
@@ -1521,6 +1763,115 @@ def fill_bye_slot(round_id):
     group_no = request.form.get("group_no", type=int)
     anchor = f"#round-{round_row['round_no']}-group-{group_no}" if group_no else f"#saved-round-{round_id}"
     return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + anchor)
+
+
+@app.route("/rounds/<int:round_id>/groups/<int:group_no>/manual-rankings", methods=["POST"])
+@login_required
+def save_manual_group_rankings(round_id, group_no):
+    db = get_db()
+    round_row = db.execute(
+        """
+        SELECT r.*, t.id AS tournament_id, t.owner_id
+        FROM tournament_rounds r JOIN tournaments t ON t.id = r.tournament_id
+        WHERE r.id = ?
+        """,
+        (round_id,),
+    ).fetchone()
+    if not round_row:
+        flash("ไม่พบรอบการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+
+    tournament = get_tournament_for_user(round_row["tournament_id"], current_user())
+    if not tournament:
+        flash("คุณไม่มีสิทธิ์จัดการ", "error")
+        return redirect(url_for("dashboard"))
+
+    slots = db.execute(
+        "SELECT * FROM round_slots WHERE round_id = ? AND group_no = ? ORDER BY slot_no",
+        (round_id, group_no),
+    ).fetchall()
+    valid_slot_nos = {slot["slot_no"] for slot in slots if not slot["is_bye"]}
+
+    winner_raw = (request.form.get("winner_slot_no") or "").strip()
+    second_raw = (request.form.get("second_slot_no") or "").strip()
+
+    if not winner_raw:
+        flash("กรุณาเลือกอันดับ 1", "error")
+        return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
+
+    try:
+        winner_slot_no = int(winner_raw)
+    except ValueError:
+        flash("อันดับ 1 ไม่ถูกต้อง", "error")
+        return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
+
+    if winner_slot_no not in valid_slot_nos:
+        flash("อันดับ 1 ต้องเป็นทีมที่มีอยู่จริง", "error")
+        return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
+
+    second_slot_no = None
+    if round_row["round_type"] == "double_knockout":
+        if not second_raw:
+            flash("กรุณาเลือกอันดับ 2", "error")
+            return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
+        try:
+            second_slot_no = int(second_raw)
+        except ValueError:
+            flash("อันดับ 2 ไม่ถูกต้อง", "error")
+            return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
+        if second_slot_no not in valid_slot_nos:
+            flash("อันดับ 2 ต้องเป็นทีมที่มีอยู่จริง", "error")
+            return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
+        if second_slot_no == winner_slot_no:
+            flash("อันดับ 1 และอันดับ 2 ต้องไม่เป็นทีมเดียวกัน", "error")
+            return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
+
+    db.execute(
+        """
+        INSERT INTO manual_group_rankings (round_id, group_no, winner_slot_no, second_slot_no, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(round_id, group_no)
+        DO UPDATE SET winner_slot_no = excluded.winner_slot_no,
+                      second_slot_no = excluded.second_slot_no,
+                      updated_at = excluded.updated_at
+        """,
+        (round_id, group_no, winner_slot_no, second_slot_no, now_str()),
+    )
+    db.commit()
+    emit_tournament_reload(round_row["tournament_id"], reason='manual_rankings_saved')
+    flash("กำหนดทีมเข้ารอบเองแล้ว", "success")
+    return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
+
+
+@app.route("/rounds/<int:round_id>/groups/<int:group_no>/manual-rankings/reset", methods=["POST"])
+@login_required
+def reset_manual_group_rankings(round_id, group_no):
+    db = get_db()
+    round_row = db.execute(
+        """
+        SELECT r.*, t.id AS tournament_id, t.owner_id
+        FROM tournament_rounds r JOIN tournaments t ON t.id = r.tournament_id
+        WHERE r.id = ?
+        """,
+        (round_id,),
+    ).fetchone()
+    if not round_row:
+        flash("ไม่พบรอบการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+
+    tournament = get_tournament_for_user(round_row["tournament_id"], current_user())
+    if not tournament:
+        flash("คุณไม่มีสิทธิ์จัดการ", "error")
+        return redirect(url_for("dashboard"))
+
+    db.execute(
+        "DELETE FROM manual_group_rankings WHERE round_id = ? AND group_no = ?",
+        (round_id, group_no),
+    )
+    db.commit()
+    emit_tournament_reload(round_row["tournament_id"], reason='manual_rankings_reset')
+    flash("ล้างการกำหนดทีมเข้ารอบเองแล้ว", "success")
+    return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
 
 
 @app.route("/rounds/<int:round_id>/groups/<int:group_no>/scores", methods=["POST"])
@@ -1555,6 +1906,7 @@ def save_round_scores(round_id, group_no):
         sync_eliminated_for_round(round_row["tournament_id"], round_row["round_no"], source_view)
         collect_eliminated_from_round(round_row["tournament_id"], source_view)
 
+    emit_tournament_reload(round_row["tournament_id"], reason='save_round_scores')
     flash("ประมวลผลรอบนี้แล้ว", "success")
     return redirect(url_for("view_tournament", tournament_id=round_row["tournament_id"]) + f"#round-{round_row['round_no']}-group-{group_no}")
 
@@ -1593,6 +1945,7 @@ def create_next_round(tournament_id):
         separate_same=separate_same,
     )
 
+    emit_tournament_reload(tournament_id, reason='create_next_round')
     flash(f"สร้างรอบถัดไปสำเร็จ (รอบที่ {round_no})", "success")
     return redirect(url_for("view_tournament", tournament_id=tournament_id) + f"#saved-round-{round_id}")
 
@@ -1699,10 +2052,12 @@ def delete_round(round_id):
         flash("ลบได้เฉพาะรอบล่าสุดเท่านั้น", "error")
         return redirect(url_for("view_tournament", tournament_id=target_round["tournament_id"]))
 
+    db.execute("DELETE FROM manual_group_rankings WHERE round_id = ?", (round_id,))
     db.execute("DELETE FROM round_scores WHERE round_id = ?", (round_id,))
     db.execute("DELETE FROM round_slots WHERE round_id = ?", (round_id,))
     db.execute("DELETE FROM tournament_rounds WHERE id = ?", (round_id,))
     db.commit()
+    emit_tournament_reload(target_round["tournament_id"], reason='delete_round')
 
     flash(f"ลบรอบ {target_round['round_name']} เรียบร้อยแล้ว", "success")
     return redirect(url_for("view_tournament", tournament_id=target_round["tournament_id"]))
@@ -1754,6 +2109,7 @@ def create_tournament_from_eliminated(tournament_id):
         for g in groups:
             while len(g) < 4:
                 g.append("X")
+        groups = reorder_groups_to_push_byes_last(groups)
         qualify_per_group = 2
     else:
         random.shuffle(teams)
@@ -1803,6 +2159,7 @@ def create_tournament_from_eliminated(tournament_id):
         [tournament_id] + selected_ids,
     )
     db.commit()
+    emit_tournament_reload(tournament_id, reason='create_from_pool')
     flash("สร้างทัวร์นาเมนต์ใหม่จากทีมตกรอบสำเร็จ", "success")
     return redirect(url_for("view_tournament", tournament_id=new_tournament_id))
 
@@ -1816,6 +2173,7 @@ def delete_tournament(tournament_id):
         return redirect(url_for("dashboard"))
 
     db = get_db()
+    db.execute("DELETE FROM manual_group_rankings WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
     db.execute("DELETE FROM round_scores WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
     db.execute("DELETE FROM round_slots WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
     db.execute("DELETE FROM tournament_rounds WHERE tournament_id = ?", (tournament_id,))
@@ -1824,6 +2182,7 @@ def delete_tournament(tournament_id):
     db.execute("DELETE FROM tournament_teams WHERE tournament_id = ?", (tournament_id,))
     db.execute("DELETE FROM tournaments WHERE id = ?", (tournament_id,))
     db.commit()
+    emit_tournament_reload(tournament_id, reason='delete_tournament')
 
     flash("ลบทัวร์นาเมนต์แล้ว", "success")
     return redirect(url_for("dashboard"))
@@ -1837,8 +2196,6 @@ def init_db_route():
 
 
 if __name__ == "__main__":
-    with app.app_context():
-        init_db()
     port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
+    socketio.run(app, host="0.0.0.0", port=port, debug=False)
 
