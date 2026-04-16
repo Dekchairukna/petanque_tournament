@@ -2163,6 +2163,21 @@ def create_tournament_from_eliminated(tournament_id):
     flash("สร้างทัวร์นาเมนต์ใหม่จากทีมตกรอบสำเร็จ", "success")
     return redirect(url_for("view_tournament", tournament_id=new_tournament_id))
 
+def get_manual_group_map(round_id):
+    try:
+        rows = get_db().execute(
+            "SELECT * FROM manual_group_rankings WHERE round_id = ?",
+            (round_id,),
+        ).fetchall()
+    except sqlite3.OperationalError as e:
+        if "no such table: manual_group_rankings" in str(e):
+            return {}
+        raise
+
+    result = {}
+    for row in rows:
+        result[(row["group_no"], row["rank_no"])] = row["team_name"]
+    return result
 
 @app.route("/tournaments/<int:tournament_id>/delete", methods=["POST"])
 @login_required
@@ -2193,7 +2208,8 @@ def init_db_route():
     init_db()
     return "Database initialized. Default super admin: dekchairukna / yagami125"
 
-
+with app.app_context():
+    init_db()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
