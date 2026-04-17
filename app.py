@@ -940,6 +940,7 @@ def on_join_tournament(data):
 
 
 def get_manual_group_map(round_id):
+<<<<<<< HEAD
     rows = get_db().execute(
         "SELECT * FROM manual_group_rankings WHERE round_id = ?",
         (round_id,),
@@ -951,6 +952,27 @@ def get_manual_group_map(round_id):
         }
         for row in rows
     }
+=======
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT group_no, winner_slot_no, second_slot_no FROM manual_group_rankings WHERE round_id = ?",
+            (round_id,),
+        ).fetchall()
+    except Exception:
+        return {}
+
+    result = {}
+    for row in rows:
+        try:
+            result[row["group_no"]] = {
+                "winner_slot_no": row["winner_slot_no"],
+                "second_slot_no": row["second_slot_no"],
+            }
+        except Exception:
+            continue
+    return result
+>>>>>>> 42e8d4b (update project)
 
 
 def get_round_views(tournament_id):
@@ -1417,7 +1439,16 @@ def create_tournament():
             competition_type = "double_knockout"
 
         manual_group_count_raw = request.form.get("group_count", "").strip()
-        manual_group_count = int(manual_group_count_raw) if manual_group_count_raw else None
+        try:
+            manual_group_count = int(manual_group_count_raw) if manual_group_count_raw else None
+        except ValueError:
+            flash("จำนวนสายต้องเป็นตัวเลขเท่านั้น", "error")
+            return render_template("create_tournament.html")
+
+        if manual_group_count is not None and manual_group_count <= 0:
+            flash("จำนวนสายต้องมากกว่า 0", "error")
+            return render_template("create_tournament.html")
+
         teams = [line.strip() for line in teams_text.splitlines() if line.strip()]
 
         if not name:
@@ -1427,6 +1458,7 @@ def create_tournament():
             flash("ต้องมีอย่างน้อย 2 ทีม", "error")
             return render_template("create_tournament.html")
 
+<<<<<<< HEAD
         if competition_type == "double_knockout":
             if len(teams) < 3:
                 flash("Double knockout ต้องมีอย่างน้อย 3 ทีม", "error")
@@ -1445,6 +1477,33 @@ def create_tournament():
                 while len(g) < 2:
                     g.append("X")
             qualify_per_group = 1
+=======
+        try:
+            if competition_type == "double_knockout":
+                if len(teams) < 3:
+                    flash("Double knockout ต้องมีอย่างน้อย 3 ทีม", "error")
+                    return render_template("create_tournament.html")
+                group_sizes = calculate_group_sizes(len(teams), manual_group_count)
+                groups = smart_draw_groups(teams, group_sizes, avoid_same=bool(avoid_same))
+                for g in groups:
+                    while len(g) < 4:
+                        g.append("X")
+                groups = reorder_groups_to_push_byes_last(groups)
+                qualify_per_group = 2
+            else:
+                group_count = manual_group_count if manual_group_count and manual_group_count > 0 else max(1, math.ceil(len(teams) / 2))
+                if group_count > len(teams):
+                    flash("จำนวนสายมากกว่าจำนวนทีมไม่ได้", "error")
+                    return render_template("create_tournament.html")
+                groups = smart_draw_groups(teams, [2] * group_count, avoid_same=bool(avoid_same))
+                for g in groups:
+                    while len(g) < 2:
+                        g.append("X")
+                qualify_per_group = 1
+        except ValueError as e:
+            flash(str(e), "error")
+            return render_template("create_tournament.html")
+>>>>>>> 42e8d4b (update project)
 
         db = get_db()
         cur = db.execute(
@@ -1919,13 +1978,32 @@ def create_next_round(tournament_id):
         flash("ไม่พบทัวร์นาเมนต์หรือคุณไม่มีสิทธิ์จัดการ", "error")
         return redirect(url_for("dashboard"))
 
-    source_round_id = int(request.form.get("source_round_id"))
+    source_round_id_raw = (request.form.get("source_round_id") or "").strip()
+    if not source_round_id_raw:
+        flash("กรุณาเลือกรอบต้นทางก่อนสร้างรอบถัดไป", "error")
+        return redirect(url_for("view_tournament", tournament_id=tournament_id))
+
+    try:
+        source_round_id = int(source_round_id_raw)
+    except ValueError:
+        flash("รอบต้นทางไม่ถูกต้อง", "error")
+        return redirect(url_for("view_tournament", tournament_id=tournament_id))
+
     target_round_type = request.form.get("round_type", "double_knockout").strip()
     if target_round_type not in {"double_knockout", "knockout"}:
         target_round_type = "double_knockout"
 
     manual_group_count_raw = request.form.get("next_group_count", "").strip()
-    manual_group_count = int(manual_group_count_raw) if manual_group_count_raw else None
+    try:
+        manual_group_count = int(manual_group_count_raw) if manual_group_count_raw else None
+    except ValueError:
+        flash("จำนวนสายต้องเป็นตัวเลขเท่านั้น", "error")
+        return redirect(url_for("view_tournament", tournament_id=tournament_id))
+
+    if manual_group_count is not None and manual_group_count <= 0:
+        flash("จำนวนสายต้องมากกว่า 0", "error")
+        return redirect(url_for("view_tournament", tournament_id=tournament_id))
+
     separate_same = True if request.form.get("separate_same") == "1" else False
 
     round_views = get_round_views(tournament_id)
@@ -1937,13 +2015,17 @@ def create_next_round(tournament_id):
     sync_eliminated_for_round(tournament_id, source_view["round"]["round_no"], source_view)
     collect_eliminated_from_round(tournament_id, source_view)
 
-    round_id, round_no = create_next_round_from_round_view(
-        tournament=tournament,
-        round_view=source_view,
-        target_round_type=target_round_type,
-        manual_group_count=manual_group_count,
-        separate_same=separate_same,
-    )
+    try:
+        round_id, round_no = create_next_round_from_round_view(
+            tournament=tournament,
+            round_view=source_view,
+            target_round_type=target_round_type,
+            manual_group_count=manual_group_count,
+            separate_same=separate_same,
+        )
+    except ValueError as e:
+        flash(str(e), "error")
+        return redirect(url_for("view_tournament", tournament_id=tournament_id))
 
     emit_tournament_reload(tournament_id, reason='create_next_round')
     flash(f"สร้างรอบถัดไปสำเร็จ (รอบที่ {round_no})", "success")
