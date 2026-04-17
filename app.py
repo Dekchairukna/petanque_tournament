@@ -370,11 +370,12 @@ def _first_match_pairs_for_capacity(capacity):
 # จะพยายามแยกให้อยู่คนละคู่ก่อน
 
 def arrange_group_for_first_round(group, capacity):
-    if len(group) <= 1:
+    n = len(group)
+    if n <= 1:
         return list(group)
 
     preferred_orders = []
-    if capacity >= 4:
+    if n >= 4:
         preferred_orders = [
             (0, 2, 1, 3),
             (0, 2, 3, 1),
@@ -383,7 +384,7 @@ def arrange_group_for_first_round(group, capacity):
             (0, 3, 2, 1),
             (0, 1, 3, 2),
         ]
-    elif capacity == 3:
+    elif n == 3:
         preferred_orders = [
             (0, 2, 1),
             (1, 2, 0),
@@ -393,10 +394,10 @@ def arrange_group_for_first_round(group, capacity):
             (2, 1, 0),
         ]
     else:
-        preferred_orders = [tuple(range(len(group)))]
+        preferred_orders = [tuple(range(n))]
 
     bases = [get_base_name(name) for name in group]
-    pair_indexes = _first_match_pairs_for_capacity(capacity)
+    pair_indexes = _first_match_pairs_for_capacity(min(capacity, n))
 
     def score(order):
         ordered_bases = [bases[i] for i in order]
@@ -1125,8 +1126,7 @@ def create_next_round_from_round_view(tournament, round_view, target_round_type,
         if len(names_for_draw) < 3:
             raise ValueError("Double knockout ต้องมีอย่างน้อย 3 ทีม")
         fill_value = 4
-        group_count = manual_group_count if manual_group_count and manual_group_count > 0 else max(1, math.ceil(len(names_for_draw) / 4))
-        group_sizes = [4] * group_count
+        group_sizes = calculate_group_sizes(len(names_for_draw), manual_group_count)
     else:
         fill_value = 2
         group_count = manual_group_count if manual_group_count and manual_group_count > 0 else max(1, math.ceil(len(names_for_draw) / 2))
@@ -2242,12 +2242,7 @@ def init_db_route():
 
 
 
-with app.app_context():
-    init_db()
-
 if __name__ == "__main__":
-    with app.app_context():
-        init_db()
     port = int(os.environ.get("PORT", 8000))
     socketio.run(app, host="0.0.0.0", port=port, debug=False)
 
