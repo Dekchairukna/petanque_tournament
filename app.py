@@ -940,19 +940,6 @@ def on_join_tournament(data):
 
 
 def get_manual_group_map(round_id):
-<<<<<<< HEAD
-    rows = get_db().execute(
-        "SELECT * FROM manual_group_rankings WHERE round_id = ?",
-        (round_id,),
-    ).fetchall()
-    return {
-        row["group_no"]: {
-            "winner_slot_no": row["winner_slot_no"],
-            "second_slot_no": row["second_slot_no"],
-        }
-        for row in rows
-    }
-=======
     db = get_db()
     try:
         rows = db.execute(
@@ -972,7 +959,6 @@ def get_manual_group_map(round_id):
         except Exception:
             continue
     return result
->>>>>>> 42e8d4b (update project)
 
 
 def get_round_views(tournament_id):
@@ -1458,26 +1444,6 @@ def create_tournament():
             flash("ต้องมีอย่างน้อย 2 ทีม", "error")
             return render_template("create_tournament.html")
 
-<<<<<<< HEAD
-        if competition_type == "double_knockout":
-            if len(teams) < 3:
-                flash("Double knockout ต้องมีอย่างน้อย 3 ทีม", "error")
-                return render_template("create_tournament.html")
-            group_sizes = calculate_group_sizes(len(teams), manual_group_count)
-            groups = smart_draw_groups(teams, group_sizes, avoid_same=bool(avoid_same))
-            for g in groups:
-                while len(g) < 4:
-                    g.append("X")
-            groups = reorder_groups_to_push_byes_last(groups)
-            qualify_per_group = 2
-        else:
-            group_count = manual_group_count if manual_group_count and manual_group_count > 0 else max(1, math.ceil(len(teams) / 2))
-            groups = smart_draw_groups(teams, [2] * group_count, avoid_same=bool(avoid_same))
-            for g in groups:
-                while len(g) < 2:
-                    g.append("X")
-            qualify_per_group = 1
-=======
         try:
             if competition_type == "double_knockout":
                 if len(teams) < 3:
@@ -1503,7 +1469,6 @@ def create_tournament():
         except ValueError as e:
             flash(str(e), "error")
             return render_template("create_tournament.html")
->>>>>>> 42e8d4b (update project)
 
         db = get_db()
         cur = db.execute(
@@ -2245,21 +2210,6 @@ def create_tournament_from_eliminated(tournament_id):
     flash("สร้างทัวร์นาเมนต์ใหม่จากทีมตกรอบสำเร็จ", "success")
     return redirect(url_for("view_tournament", tournament_id=new_tournament_id))
 
-def get_manual_group_map(round_id):
-    try:
-        rows = get_db().execute(
-            "SELECT * FROM manual_group_rankings WHERE round_id = ?",
-            (round_id,),
-        ).fetchall()
-    except sqlite3.OperationalError as e:
-        if "no such table: manual_group_rankings" in str(e):
-            return {}
-        raise
-
-    result = {}
-    for row in rows:
-        result[(row["group_no"], row["rank_no"])] = row["team_name"]
-    return result
 
 @app.route("/tournaments/<int:tournament_id>/delete", methods=["POST"])
 @login_required
@@ -2290,10 +2240,14 @@ def init_db_route():
     init_db()
     return "Database initialized. Default super admin: dekchairukna / yagami125"
 
+
+
 with app.app_context():
     init_db()
 
 if __name__ == "__main__":
+    with app.app_context():
+        init_db()
     port = int(os.environ.get("PORT", 8000))
     socketio.run(app, host="0.0.0.0", port=port, debug=False)
 
