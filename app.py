@@ -20,10 +20,38 @@ socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
 
 # ------------------------- database -------------------------
+def table_exists(db, table_name):
+    row = db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def ensure_runtime_schema(db):
+    if not table_exists(db, "manual_group_rankings"):
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS manual_group_rankings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                round_id INTEGER NOT NULL,
+                group_no INTEGER NOT NULL,
+                winner_slot_no INTEGER,
+                second_slot_no INTEGER,
+                updated_at TEXT NOT NULL,
+                UNIQUE(round_id, group_no),
+                FOREIGN KEY(round_id) REFERENCES tournament_rounds(id)
+            )
+            """
+        )
+        db.commit()
+
+
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DATABASE)
         g.db.row_factory = sqlite3.Row
+        ensure_runtime_schema(g.db)
     return g.db
 
 
@@ -2099,7 +2127,8 @@ def delete_round(round_id):
         flash("ลบได้เฉพาะรอบล่าสุดเท่านั้น", "error")
         return redirect(url_for("view_tournament", tournament_id=target_round["tournament_id"]))
 
-    db.execute("DELETE FROM manual_group_rankings WHERE round_id = ?", (round_id,))
+    if table_exists(db, "manual_group_rankings"):
+        db.execute("DELETE FROM manual_group_rankings WHERE round_id = ?", (round_id,))
     db.execute("DELETE FROM round_scores WHERE round_id = ?", (round_id,))
     db.execute("DELETE FROM round_slots WHERE round_id = ?", (round_id,))
     db.execute("DELETE FROM tournament_rounds WHERE id = ?", (round_id,))
@@ -2220,7 +2249,8 @@ def delete_tournament(tournament_id):
         return redirect(url_for("dashboard"))
 
     db = get_db()
-    db.execute("DELETE FROM manual_group_rankings WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
+    if table_exists(db, "manual_group_rankings"):
+        db.execute("DELETE FROM manual_group_rankings WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
     db.execute("DELETE FROM round_scores WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
     db.execute("DELETE FROM round_slots WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
     db.execute("DELETE FROM tournament_rounds WHERE tournament_id = ?", (tournament_id,))
