@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+  <meta charset="UTF-8">
+  <title>สกอร์ชีท - {{ tournament['name'] }}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 5mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Tahoma, Arial, sans-serif;
+      font-size: 15px;
+      margin: 0;
+      color: #000;
+    }
+
+    .no-print {
+      margin: 10px 0 14px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 8px 14px;
+      border: 1px solid #111;
+      border-radius: 8px;
+      text-decoration: none;
+      color: #111;
+      background: #fff;
+      font-weight: 700;
+    }
+
+    .score-sheet {
+      border: 3px solid #000;
+      padding: 5px;
+      margin-bottom: 5px;
+      min-height: 13mm;
+      position: relative;
+      page-break-inside: avoid;
+    }
+
+    .page-break-after {
+      page-break-after: always;
+      break-after: page;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 3px;
+      padding: 0 5px;
+      line-height: 1.25;
+    }
+
+    .event-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .event-name {
+      font-weight: 800;
+      font-size: 18px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .event-details {
+      font-size: 14px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    .meta-box {
+      border: 1px solid #000;
+      padding: 4px 6px;
+      min-width: 118px;
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .row {
+      display: flex;
+      align-items: flex-start;
+      margin: 3px 0;
+    }
+
+    .label {
+      width: 52px;
+      min-width: 52px;
+      padding-top: 7px;
+      font-weight: 800;
+    }
+
+    .boxes {
+      display: grid;
+      grid-template-columns: minmax(165px, 1fr) repeat(13, 30px) 58px;
+      gap: 2px;
+      width: 100%;
+    }
+
+    .box,
+    .team-name-box {
+      height: 30px;
+      border: 1px solid #000;
+      text-align: center;
+      line-height: 30px;
+      box-sizing: border-box;
+    }
+
+    .team-name-box {
+      text-align: left;
+      padding-left: 5px;
+      font-size: 13px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .score-number {
+      font-weight: 800;
+      background: #f3f4f6;
+    }
+
+    .signature {
+      margin-top: 6px;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .sheet-footer {
+      position: absolute;
+      right: 8px;
+      bottom: 0px;
+      font-size: 11px;
+      color: #333;
+    }
+
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .score-sheet {
+        margin-bottom: 0;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="no-print">
+    <a class="btn" href="javascript:window.print()">พิมพ์สกอร์ชีท</a>
+    <span>รูปแบบเดียวกับระบบ tournoi: 1 ใบมีช่องคะแนน 1-13 และช่องรวม</span>
+  </div>
+
+  {% if not sheets %}
+  <div style="padding: 24px; border: 1px solid #ddd;">ยังไม่มีคู่แข่งขันสำหรับพิมพ์สกอร์ชีท</div>
+  {% endif %}
+
+  {% for sheet in sheets %}
+  <div class="score-sheet {% if loop.index % 4 == 0 %}page-break-after{% endif %}">
+    <div class="header">
+      <div class="event-info">
+        <div class="event-name">{{ tournament['name'] }}</div>
+        <div class="event-details">
+          รอบ: {{ sheet.round['round_name'] }} &nbsp;&nbsp;
+          ระบบ: {{ competition_type_label(sheet.round['round_type']) }} &nbsp;&nbsp;
+          สาย: {{ sheet.group_no }} &nbsp;&nbsp;
+          {{ sheet.stage_label }} &nbsp;&nbsp;
+          สนาม: {{ sheet.court_name or '__________' }}
+        </div>
+      </div>
+
+    </div>
+
+    <div class="row">
+      <div class="label">ทีม:</div>
+      <div class="boxes">
+        <div class="team-name-box team-name">{{ sheet.team1_name }}</div>
+        {% for _ in range(13) %}<div class="box"></div>{% endfor %}
+        <div class="box"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">คะแนน:</div>
+      <div class="boxes">
+        <div class="team-name-box"></div>
+        {% for i in range(1, 14) %}<div class="box score-number">{{ i }}</div>{% endfor %}
+        <div class="box score-number">รวม</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">ทีม:</div>
+      <div class="boxes">
+        <div class="team-name-box team-name">{{ sheet.team2_name }}</div>
+        {% for _ in range(13) %}<div class="box"></div>{% endfor %}
+        <div class="box"></div>
+      </div>
+    </div>
+
+    <div class="signature">
+      ลงชื่อทีม : _________________________________&nbsp;&nbsp;&nbsp;
+      ลงชื่อทีม : ________________________________<br>
+      ทีม _________________ เปลี่ยนตัว: _____________________ แทน ______________________________<br>
+      ทีม _________________ เปลี่ยนตัว: _____________________ แทน ______________________________<br>
+      ลงชื่อกรรมการ: _________________________________________________________________________
+    </div>
+
+  </div>
+  {% endfor %}
+
+  <script>
+    function fitTeamName(box, minFontSize = 8) {
+      let fontSize = parseFloat(window.getComputedStyle(box).fontSize);
+      while (box.scrollWidth > box.clientWidth && fontSize > minFontSize) {
+        fontSize -= 0.5;
+        box.style.fontSize = fontSize + 'px';
+      }
+    }
+    document.querySelectorAll('.team-name').forEach(box => fitTeamName(box));
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}หน้าหลัก{% endblock %}
+
+{% block content %}
+<div class="page-grid">
+    <div class="card" style="padding: 22px;">
+        <h1 style="margin-top:0;">รายการแข่งขันทั้งหมด</h1>
+        <p class="muted-text" style="margin-bottom:0;">
+            ผู้ชมสามารถเข้าดูรายการได้โดยไม่ต้องล็อกอิน
+        </p>
+    </div>
+
+    <div class="card" style="padding: 20px;">
+        {% if tournaments %}
+        <div style="overflow-x:auto;">
+            <table style="border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">ชื่อรายการ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">รูปแบบ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">จำนวนทีม</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">จำนวนสาย</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">เจ้าของ</th>
+                        <th style="text-align:left; padding:12px; border-bottom:1px solid #e5e7eb;">จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in tournaments %}
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            <strong>{{ t.name }}</strong>
+                        </td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            {{ competition_type_label(t.competition_type) }}
+                        </td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ t.team_count }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ t.group_count }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">{{ t.owner_name }}</td>
+                        <td style="padding:12px; border-bottom:1px solid #f1f5f9;">
+                            <a class="btn btn-primary" href="{{ url_for('view_tournament', tournament_id=t.id) }}">เปิดดู</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">ยังไม่มีทัวร์นาเมนต์</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

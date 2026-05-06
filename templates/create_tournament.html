@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}สร้างทัวร์นาเมนต์{% endblock %}
+
+{% block content %}
+<div class="card" style="padding:24px; max-width:1000px; margin:0 auto;">
+    <h1 style="margin-top:0;">สร้างทัวร์นาเมนต์</h1>
+    <p class="muted-text">ตอนนี้เปิดใช้เฉพาะ Double knockout และ Knockout</p>
+
+    <form method="post" style="display:grid; gap:18px;">
+        <div>
+            <label style="display:block; font-weight:700; margin-bottom:8px;">ชื่อทัวร์นาเมนต์</label>
+            <input type="text" name="name" required style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;">
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px;">
+            <div>
+                <label style="display:block; font-weight:700; margin-bottom:8px;">รูปแบบการแข่งขัน</label>
+                <select name="competition_type" style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;">
+                    <option value="double_knockout">Double knockout</option>
+                    <option value="knockout">Knockout</option>
+                </select>
+            </div>
+
+            <div>
+                <label style="display:block; font-weight:700; margin-bottom:8px;">จำนวนสาย</label>
+                <input type="number" name="group_count" min="1" placeholder="ปล่อยว่าง = อัตโนมัติ"
+                       style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;">
+            </div>
+        </div>
+
+        <div>
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+                <input type="checkbox" name="avoid_same" checked>
+                แยกทีมชื่อสังกัดเดียวกันออกจากสายถ้าเลี่ยงได้
+            </label>
+        </div>
+
+        <div>
+            <label style="display:block; font-weight:700; margin-bottom:8px;">รายชื่อทีม (1 บรรทัดต่อ 1 ทีม)</label>
+            <textarea name="teams" rows="14" required
+                      style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:10px;"
+                      placeholder="กาฬสิน1&#10;กาฬสิน2&#10;มุกดาหาร1&#10;มุกดาหาร2"></textarea>
+        </div>
+
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; padding:14px 16px; color:#1e3a8a;">
+            <div><strong>Double knockout</strong> จะจัดสาย 3–4 ทีม และถ้าสายไหนมี 3 ทีม ระบบจะเติม X ให้อัตโนมัติ</div>
+            <div style="margin-top:6px;"><strong>Knockout</strong> จะจับคู่แบบ 2 ทีมต่อคู่ และถ้าทีมคี่จะเติม X เป็นบาย</div>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:12px;">
+            <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">ยกเลิก</a>
+            <button type="submit" class="btn btn-primary">สร้างรายการ</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
