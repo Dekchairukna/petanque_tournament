@@ -46,6 +46,53 @@ def ensure_runtime_schema(db):
         )
         db.commit()
 
+    # เพิ่มคอลัมน์คลังทีมตกรอบแบบย้อนหลังได้
+    # source_tournament_id = อีเว้นต้นทางจริง, source_round_no = ตกรอบที่เท่าไหร่
+    if table_exists(db, "team_pool"):
+        cols = {row[1] for row in db.execute("PRAGMA table_info(team_pool)").fetchall()}
+        changed = False
+        if "source_tournament_id" not in cols:
+            db.execute("ALTER TABLE team_pool ADD COLUMN source_tournament_id INTEGER")
+            changed = True
+        if "source_round_no" not in cols:
+            db.execute("ALTER TABLE team_pool ADD COLUMN source_round_no INTEGER")
+            changed = True
+        if "source_group_no" not in cols:
+            db.execute("ALTER TABLE team_pool ADD COLUMN source_group_no INTEGER")
+            changed = True
+
+        # ข้อมูลเดิมให้ถือว่ามาจากทัวร์นาเมนต์ของตัวเอง และพยายามอ่านเลขรอบ/สายจาก source_text
+        rows = db.execute(
+            """
+            SELECT id, tournament_id, source_text, source_tournament_id, source_round_no, source_group_no
+            FROM team_pool
+            WHERE source_tournament_id IS NULL OR source_round_no IS NULL OR source_group_no IS NULL
+            """
+        ).fetchall()
+        for row in rows:
+            text = row["source_text"] or ""
+            round_match = re.search(r"รอบ\s*(\d+)", text)
+            group_match = re.search(r"สาย\s*(\d+)", text)
+            source_round_no = row["source_round_no"]
+            source_group_no = row["source_group_no"]
+            if source_round_no is None and round_match:
+                source_round_no = int(round_match.group(1))
+            if source_group_no is None and group_match:
+                source_group_no = int(group_match.group(1))
+            db.execute(
+                """
+                UPDATE team_pool
+                SET source_tournament_id = COALESCE(source_tournament_id, ?),
+                    source_round_no = ?,
+                    source_group_no = ?
+                WHERE id = ?
+                """,
+                (row["tournament_id"], source_round_no, source_group_no, row["id"]),
+            )
+            changed = True
+        if changed:
+            db.commit()
+
 
 def get_db():
     if "db" not in g:
@@ -182,6 +229,9 @@ def init_db():
             tournament_id INTEGER NOT NULL,
             team_name TEXT NOT NULL,
             source_text TEXT,
+            source_tournament_id INTEGER,
+            source_round_no INTEGER,
+            source_group_no INTEGER,
             status TEXT NOT NULL DEFAULT 'pool',
             created_at TEXT NOT NULL,
             UNIQUE(tournament_id, team_name),
@@ -1084,7 +1134,7 @@ def collect_eliminated_from_round(tournament_id, round_view):
             if not team_name or team_name == "X":
                 continue
 
-            source_text = f"ทัวร์นาเมนต์ {tournament_id} / รอบ {round_no} / สาย {group_no}"
+            source_text = f"ตกรอบ {round_no} / สาย {group_no}"
 
             exists = db.execute(
                 """
@@ -1103,10 +1153,10 @@ def collect_eliminated_from_round(tournament_id, round_view):
             db.execute(
                 """
                 INSERT INTO team_pool
-                (tournament_id, team_name, source_text, status, created_at)
-                VALUES (?, ?, ?, 'pool', ?)
+                (tournament_id, team_name, source_text, source_tournament_id, source_round_no, source_group_no, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'pool', ?)
                 """,
-                (tournament_id, team_name, source_text, now_str()),
+                (tournament_id, team_name, source_text, tournament_id, round_no, group_no, now_str()),
             )
 
     db.commit()
@@ -2205,21 +2255,104 @@ def create_next_round(tournament_id):
 @app.route("/tournaments/<int:tournament_id>/eliminated")
 @login_required
 def eliminated_pool(tournament_id):
-    tournament = get_tournament_for_user(tournament_id, current_user())
+    user = current_user()
+    tournament = get_tournament_for_user(tournament_id, user)
     if not tournament:
         flash("ไม่พบทัวร์นาเมนต์หรือคุณไม่มีสิทธิ์จัดการ", "error")
         return redirect(url_for("dashboard"))
 
-    rows = get_db().execute(
-        """
-        SELECT * FROM team_pool
-        WHERE tournament_id = ? AND status = 'pool'
-        ORDER BY id DESC
+    db = get_db()
+
+    # รายการที่ผู้ใช้มีสิทธิ์ใช้เป็นต้นทางได้
+    if user["role"] == "super_admin":
+        available_sources = db.execute(
+            """
+            SELECT DISTINCT t.id, t.name
+            FROM tournaments t
+            JOIN team_pool tp ON tp.tournament_id = t.id
+            WHERE tp.status IN ('pool', 'used')
+            ORDER BY t.created_at DESC, t.id DESC
+            """
+        ).fetchall()
+    else:
+        available_sources = db.execute(
+            """
+            SELECT DISTINCT t.id, t.name
+            FROM tournaments t
+            JOIN team_pool tp ON tp.tournament_id = t.id
+            WHERE t.owner_id = ?
+              AND tp.status IN ('pool', 'used')
+            ORDER BY t.created_at DESC, t.id DESC
+            """,
+            (user["id"],),
+        ).fetchall()
+
+    selected_source_ids = []
+    for raw_id in request.args.getlist("source_ids"):
+        try:
+            selected_source_ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+
+    available_ids = {row["id"] for row in available_sources}
+    selected_source_ids = [sid for sid in selected_source_ids if sid in available_ids]
+    if not selected_source_ids:
+        selected_source_ids = [tournament_id]
+
+    placeholders = ",".join("?" * len(selected_source_ids))
+    rows = db.execute(
+        f"""
+        SELECT
+            tp.*,
+            COALESCE(src.name, 'ไม่พบชื่ออีเว้น') AS source_tournament_name
+        FROM team_pool tp
+        LEFT JOIN tournaments src ON src.id = COALESCE(tp.source_tournament_id, tp.tournament_id)
+        WHERE tp.tournament_id IN ({placeholders})
+          AND tp.status IN ('pool', 'used')
+        ORDER BY
+          COALESCE(tp.source_tournament_id, tp.tournament_id) DESC,
+          COALESCE(tp.source_round_no, 9999) ASC,
+          COALESCE(tp.source_group_no, 9999) ASC,
+          tp.id DESC
         """,
-        (tournament_id,),
+        selected_source_ids,
     ).fetchall()
 
-    return render_template("eliminated_pool.html", tournament=tournament, eliminated_rows=rows)
+    pool_groups_map = {}
+    for row in rows:
+        source_id = row["source_tournament_id"] or row["tournament_id"]
+        round_no = row["source_round_no"]
+        if round_no is None:
+            round_label = "ไม่ระบุรอบ"
+            round_sort = 9999
+        elif round_no == 0:
+            round_label = "เพิ่มเอง"
+            round_sort = 0
+        else:
+            round_label = f"ตกรอบที่ {round_no}"
+            round_sort = int(round_no)
+
+        key = (source_id, round_sort)
+        if key not in pool_groups_map:
+            pool_groups_map[key] = {
+                "source_id": source_id,
+                "source_name": row["source_tournament_name"],
+                "round_no": round_no,
+                "round_label": round_label,
+                "rows": [],
+            }
+        pool_groups_map[key]["rows"].append(row)
+
+    pool_groups = list(pool_groups_map.values())
+    pool_groups.sort(key=lambda g: (g["source_name"] or "", 9999 if g["round_no"] is None else int(g["round_no"])))
+
+    return render_template(
+        "eliminated_pool.html",
+        tournament=tournament,
+        available_sources=available_sources,
+        selected_source_ids=selected_source_ids,
+        pool_groups=pool_groups,
+    )
 
 
 @app.route("/tournaments/<int:tournament_id>/team-pool/add", methods=["POST"])
@@ -2254,10 +2387,11 @@ def add_team_to_pool(tournament_id):
 
     db.execute(
         """
-        INSERT INTO team_pool (tournament_id, team_name, source_text, status, created_at)
-        VALUES (?, ?, ?, 'pool', ?)
+        INSERT INTO team_pool
+        (tournament_id, team_name, source_text, source_tournament_id, source_round_no, source_group_no, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pool', ?)
         """,
-        (tournament_id, team_name, "เพิ่มเองโดยผู้ดูแล", now_str()),
+        (tournament_id, team_name, "เพิ่มเองโดยผู้ดูแล", tournament_id, 0, None, now_str()),
     )
     db.commit()
 
@@ -2341,14 +2475,30 @@ def create_tournament_from_eliminated(tournament_id):
     placeholders = ",".join("?" * len(selected_ids))
     rows = db.execute(
         f"""
-        SELECT * FROM team_pool
-        WHERE tournament_id = ? AND id IN ({placeholders}) AND status = 'pool'
-        ORDER BY id
+        SELECT tp.*, t.owner_id
+        FROM team_pool tp
+        JOIN tournaments t ON t.id = tp.tournament_id
+        WHERE tp.id IN ({placeholders})
+          AND tp.status IN ('pool', 'used')
+        ORDER BY tp.source_tournament_id, tp.source_round_no, tp.source_group_no, tp.id
         """,
-        [tournament_id] + selected_ids,
+        selected_ids,
     ).fetchall()
 
-    teams = [r["team_name"] for r in rows]
+    allowed_rows = []
+    for row in rows:
+        if user["role"] == "super_admin" or row["owner_id"] == user["id"]:
+            allowed_rows.append(row)
+
+    # กันชื่อทีมซ้ำกรณีเลือกข้ามหลายอีเว้น
+    teams = []
+    seen_names = set()
+    for r in allowed_rows:
+        team_name = (r["team_name"] or "").strip()
+        if not team_name or team_name in seen_names:
+            continue
+        seen_names.add(team_name)
+        teams.append(team_name)
     if len(teams) < 2:
         flash("ต้องมีอย่างน้อย 2 ทีมเพื่อสร้างรายการใหม่", "error")
         return redirect(url_for("eliminated_pool", tournament_id=tournament_id))
@@ -2403,14 +2553,15 @@ def create_tournament_from_eliminated(tournament_id):
 
     create_round(new_tournament_id, 1, "รอบที่ 1", competition_type, groups)
 
-    db.execute(
-        f"""
-        UPDATE team_pool
-        SET status = 'used'
-        WHERE tournament_id = ? AND id IN ({placeholders})
-        """,
-        [tournament_id] + selected_ids,
-    )
+    # ทำเครื่องหมายว่าเคยถูกนำไปใช้แล้ว แต่ยังคงอยู่ในคลังและเลือกซ้ำได้
+    used_ids = [str(r["id"]) for r in allowed_rows]
+    if used_ids:
+        used_placeholders = ",".join("?" * len(used_ids))
+        db.execute(
+            f"UPDATE team_pool SET status = 'used' WHERE id IN ({used_placeholders})",
+            used_ids,
+        )
+
     db.commit()
     emit_tournament_reload(tournament_id, reason='create_from_pool')
     flash("สร้างทัวร์นาเมนต์ใหม่จากทีมตกรอบสำเร็จ", "success")
