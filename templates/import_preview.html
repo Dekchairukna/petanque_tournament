@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}เลือกประเภทที่จะสร้าง{% endblock %}
+
+{% block content %}
+<style>
+    .chip{display:inline-block;border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:6px 12px;margin:3px;cursor:pointer;font-size:14px}
+    .chip:hover{background:#eff6ff;border-color:#93c5fd}
+    .chip.on{background:#2563eb;color:#fff;border-color:#2563eb}
+    .ev-table td,.ev-table th{padding:8px 10px}
+    .ev-table tr.off td{opacity:.55}
+    .cat-row td{background:#f1f5f9;font-weight:700}
+    .team-list{columns:3;font-size:13px;margin:6px 0 0;padding-left:18px}
+    .warn{color:#b45309;font-size:13px}
+    .sticky-bar{position:sticky;bottom:0;background:#fff;border-top:1px solid #e5e7eb;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-radius:0 0 18px 18px;box-shadow:0 -6px 16px rgba(0,0,0,.05)}
+    label.inline{display:flex;align-items:center;gap:8px;font-weight:600}
+    label.inline input{width:auto}
+    @media(max-width:800px){.team-list{columns:1}}
+</style>
+
+<form method="post" action="{{ url_for('import_create', draft_id=draft['id']) }}" enctype="multipart/form-data">
+<div class="card">
+    <h1 style="margin-top:0;">พบ {{ events|length }} ประเภทการแข่งขัน</h1>
+    <div class="muted">จากไฟล์ <strong>{{ draft['filename'] }}</strong>{% if title_lines %} — {{ title_lines|join(' ') }}{% endif %}</div>
+
+    <div class="grid-2" style="margin-top:18px;">
+        <div>
+            <label style="font-weight:700;">ชื่อชุดการแข่งขัน</label>
+            <input type="text" name="batch_name" value="{{ default_batch_name }}" required>
+        </div>
+        <div>
+            <label style="font-weight:700;">คำนำหน้าชื่อรายการ (ไม่บังคับ)</label>
+            <input type="text" name="name_prefix" placeholder="เช่น เปตอง">
+        </div>
+        <div style="grid-column:1/-1;">
+            <label style="font-weight:700;">หัวกระดาษบรรทัดที่ 2 ในไฟล์ Excel ตารางแบ่งสาย</label>
+            <input type="text" name="subtitle" value="{{ default_subtitle }}">
+        </div>
+        <div>
+            <label style="font-weight:700;">รูปแบบการแข่งขัน (รอบแรก)</label>
+            <select name="competition_type" id="competition_type">
+                <option value="double_knockout">Double knockout (สายละ 3–4 ทีม)</option>
+                <option value="knockout">Knockout (จับคู่ 2 ทีม)</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-weight:700;">การจับสลาก</label>
+            <select name="avoid_mode">
+                {% for key, label in avoid_modes.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label style="font-weight:700;">โลโก้ซ้ายบนหัวกระดาษ (ไม่บังคับ)</label>
+            <input type="file" name="left_logo" accept="image/png,image/jpeg">
+        </div>
+        <div>
+            <label style="font-weight:700;">โลโก้ขวา (ไม่บังคับ)</label>
+            <input type="file" name="right_logo" accept="image/png,image/jpeg">
+            <label class="inline small" style="margin-top:6px;"><input type="checkbox" name="use_default_right_logo" checked> ถ้าไม่อัปโหลด ใช้โลโก้ TBF</label>
+        </div>
+        <div style="grid-column:1/-1;">
+            <label class="inline"><input type="checkbox" name="abbreviate" id="abbreviate" checked>
+                ย่อชื่อหน่วยงาน (เทศบาลนคร → ทน., เทศบาลเมือง → ทม., เทศบาลตำบล → ทต., อบจ., อบต.)</label>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="padding-bottom:0;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <h2 style="margin:0;">เลือกประเภทที่จะสร้าง</h2>
+        <div>
+            <span class="chip" data-act="all">เลือกทั้งหมด</span>
+            <span class="chip" data-act="none">ไม่เลือกเลย</span>
+        </div>
+    </div>
+    <div style="margin:10px 0;">
+        <span class="muted small">ประเภท:</span>
+        {% for c in categories %}<span class="chip" data-cat="{{ c }}">{{ c }}</span>{% endfor %}
+        {% if ages %}<span class="muted small" style="margin-left:10px;">รุ่นอายุ:</span>
+        {% for a in ages %}<span class="chip" data-age="{{ a }}">{{ a }} ปี</span>{% endfor %}{% endif %}
+        <span class="muted small" style="margin-left:10px;">เพศ:</span>
+        <span class="chip" data-gender="ชาย">ชาย</span><span class="chip" data-gender="หญิง">หญิง</span><span class="chip" data-gender="ผสม">ผสม</span>
+    </div>
+    <div class="muted small" style="margin-bottom:10px;">คลิกปุ่มเพื่อเลือก/ยกเลิกทั้งกลุ่ม (เช่น คลิก "คู่" แล้วคลิก "12 ปี" ซ้ำเพื่อเอาออก) — ชู้ตติ้งไม่ได้ติ๊กไว้ให้ เพราะไม่ได้แข่งแบบแบ่งสาย</div>
+
+    <div style="overflow-x:auto;">
+    <table class="ev-table">
+        <thead>
+            <tr>
+                <th style="width:36px;"><input type="checkbox" id="check_all" style="width:auto;"></th>
+                <th style="text-align:left;">ประเภท</th>
+                <th>เพศ</th>
+                <th>อายุ</th>
+                <th>ทีม</th>
+                <th>จำนวนสายที่จะสร้าง</th>
+                <th style="width:150px;">ปรับจำนวนสาย</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% set ns = namespace(cat=None) %}
+        {% for ev in events %}
+            {% if ev.category != ns.cat %}
+                {% set ns.cat = ev.category %}
+                <tr class="cat-row"><td colspan="7">{{ ev.category }}</td></tr>
+            {% endif %}
+            <tr class="ev-row{% if not ev.default_on %} off{% endif %}" data-cat="{{ ev.category }}" data-age="{{ ev.age or '' }}" data-gender="{{ ev.gender }}"
+                data-dk="{{ ev.groups_dk or '' }}" data-ko="{{ ev.groups_ko or '' }}">
+                <td style="text-align:center;"><input type="checkbox" name="events" value="{{ ev.idx }}" class="ev-check" style="width:auto;" {% if ev.default_on %}checked{% endif %}></td>
+                <td>
+                    <strong>{{ ev.title }}</strong>
+                    <details><summary class="small muted" style="cursor:pointer;">ดูรายชื่อ {{ ev.teams|length }} ทีม</summary>
+                        <ol class="team-list">{% for t in ev.teams %}<li>{{ t.name }}{% if t.province %} <span class="muted">({{ t.province }})</span>{% endif %}</li>{% endfor %}</ol>
+                    </details>
+                </td>
+                <td style="text-align:center;">{{ ev.gender }}</td>
+                <td style="text-align:center;">{{ ev.age or '-' }}</td>
+                <td style="text-align:center;">{{ ev.teams|length }}</td>
+                <td style="text-align:center;" class="gcount">
+                    {{ ev.groups_dk or '—' }}
+                    {% if ev.suggested_group_count %}<div class="small muted">จากสรุปกำหนดสาย</div>{% endif %}
+                </td>
+                <td>
+                    <input type="number" min="1" name="group_count_{{ ev.idx }}"
+                        value="{{ ev.suggested_group_count or '' }}" placeholder="อัตโนมัติ" style="padding:6px 8px;">
+                    {% if ev.suggested_group_count %}<div class="small muted" style="margin-top:3px;">กำหนดให้แล้ว</div>{% endif %}
+                    {% if ev.group_count_note %}<div class="warn" style="margin-top:3px;">{{ ev.group_count_note }}</div>{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+    <div class="sticky-bar">
+        <div>
+            เลือกแล้ว <strong id="sel_count">0</strong> ประเภท · <strong id="sel_teams">0</strong> ทีม
+            {% if quota is not none %}<span class="muted small"> (โควตาเหลือ {{ quota }})</span>{% endif %}
+        </div>
+        <div class="actions">
+            <a href="{{ url_for('import_events') }}" class="btn secondary">อัปโหลดไฟล์ใหม่</a>
+            {% if create_ok %}
+            <button type="submit" class="btn success" id="create_btn">สร้างการแข่งขันที่เลือก</button>
+            {% else %}
+            <button type="button" class="btn secondary" disabled>{{ create_message }}</button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+</form>
+
+<script>
+(function(){
+    const rows = Array.from(document.querySelectorAll('.ev-row'));
+    const box = r => r.querySelector('.ev-check');
+    function refresh(){
+        let n = 0, teams = 0;
+        rows.forEach(r => {
+            const on = box(r).checked;
+            r.classList.toggle('off', !on);
+            if(on){ n++; teams += parseInt(r.children[4].textContent) || 0; }
+        });
+        document.getElementById('sel_count').textContent = n;
+        document.getElementById('sel_teams').textContent = teams;
+        document.getElementById('check_all').checked = n === rows.length;
+        const btn = document.getElementById('create_btn');
+        if(btn){ btn.disabled = n === 0; btn.textContent = n ? `สร้างการแข่งขันที่เลือก (${n} ประเภท)` : 'สร้างการแข่งขันที่เลือก'; }
+        document.querySelectorAll('.chip[data-cat],.chip[data-age],.chip[data-gender]').forEach(ch => {
+            const k = ch.dataset.cat ? 'cat' : (ch.dataset.age ? 'age' : 'gender');
+            const group = rows.filter(r => r.dataset[k] === ch.dataset[k]);
+            ch.classList.toggle('on', group.length > 0 && group.every(r => box(r).checked));
+        });
+    }
+    function toggleGroup(key, value){
+        const group = rows.filter(r => r.dataset[key] === value);
+        const allOn = group.every(r => box(r).checked);
+        group.forEach(r => box(r).checked = !allOn);
+        refresh();
+    }
+    document.querySelectorAll('.chip').forEach(ch => ch.addEventListener('click', () => {
+        if(ch.dataset.act === 'all'){ rows.forEach(r => box(r).checked = true); refresh(); return; }
+        if(ch.dataset.act === 'none'){ rows.forEach(r => box(r).checked = false); refresh(); return; }
+        if(ch.dataset.cat) return toggleGroup('cat', ch.dataset.cat);
+        if(ch.dataset.age) return toggleGroup('age', ch.dataset.age);
+        if(ch.dataset.gender) return toggleGroup('gender', ch.dataset.gender);
+    }));
+    document.getElementById('check_all').addEventListener('change', e => { rows.forEach(r => box(r).checked = e.target.checked); refresh(); });
+    rows.forEach(r => box(r).addEventListener('change', refresh));
+    document.getElementById('competition_type').addEventListener('change', e => {
+        const ko = e.target.value === 'knockout';
+        rows.forEach(r => { r.querySelector('.gcount').textContent = (ko ? r.dataset.ko : r.dataset.dk) || '—'; });
+    });
+    refresh();
+})();
+</script>
+{% endblock %}

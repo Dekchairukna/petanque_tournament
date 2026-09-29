@@ -1,13 +1,16 @@
+import json
 import math
 import os
 import random
 import re
 import sqlite3
-from collections import defaultdict
-from datetime import datetime
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Flask, flash, g, redirect, render_template, request, session, url_for
+from flask import Flask, flash, g, redirect, render_template, request, send_file, session, url_for
+
+import bulk_events
 from flask_socketio import SocketIO, emit, join_room
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -92,6 +95,59 @@ def ensure_runtime_schema(db):
             changed = True
         if changed:
             db.commit()
+
+
+    ensure_bulk_schema(db)
+
+
+def ensure_bulk_schema(db):
+    """ตาราง/คอลัมน์สำหรับระบบนำเข้าอีเวนต์จาก Excel (สร้างเพิ่มแบบไม่กระทบข้อมูลเดิม)"""
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tournament_batches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            subtitle TEXT,
+            owner_id INTEGER NOT NULL,
+            left_logo BLOB,
+            right_logo BLOB,
+            use_default_right_logo INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS import_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL,
+            filename TEXT,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    changed = False
+    if table_exists(db, "tournaments"):
+        cols = {row[1] for row in db.execute("PRAGMA table_info(tournaments)").fetchall()}
+        for col, ddl in (
+            ("batch_id", "INTEGER"),
+            ("event_label", "TEXT"),
+            ("event_category", "TEXT"),
+            ("event_gender", "TEXT"),
+            ("event_age", "INTEGER"),
+            ("sort_order", "INTEGER"),
+        ):
+            if col not in cols:
+                db.execute(f"ALTER TABLE tournaments ADD COLUMN {col} {ddl}")
+                changed = True
+    if table_exists(db, "tournament_teams"):
+        cols = {row[1] for row in db.execute("PRAGMA table_info(tournament_teams)").fetchall()}
+        for col in ("full_name", "district", "province"):
+            if col not in cols:
+                db.execute(f"ALTER TABLE tournament_teams ADD COLUMN {col} TEXT")
+                changed = True
+    db.commit()
 
 
 def get_db():
@@ -251,6 +307,7 @@ def init_db():
         """
     )
     db.commit()
+    ensure_bulk_schema(db)
     seed_super_admin(db)
 
 
@@ -447,7 +504,9 @@ def _first_match_pairs_for_capacity(capacity):
 # โดยเฉพาะกรณีที่จำนวนสายไม่พอและทีมชื่อฐานเดียวกันต้องอยู่สายเดียวกัน
 # จะพยายามแยกให้อยู่คนละคู่ก่อน
 
-def arrange_group_for_first_round(group, capacity):
+def arrange_group_for_first_round(group, capacity, key_func=None, secondary_key_func=None):
+    key_func = key_func or get_base_name
+    secondary_key_func = secondary_key_func or key_func
     n = len(group)
     if n <= 1:
         return list(group)
@@ -474,27 +533,36 @@ def arrange_group_for_first_round(group, capacity):
     else:
         preferred_orders = [tuple(range(n))]
 
-    bases = [get_base_name(name) for name in group]
+    bases = [key_func(name) for name in group]
+    secondary_bases = [secondary_key_func(name) for name in group]
     pair_indexes = _first_match_pairs_for_capacity(min(capacity, n))
 
     def score(order):
         ordered_bases = [bases[i] for i in order]
+        ordered_secondary = [secondary_bases[i] for i in order]
         same_pair_penalty = 0
+        secondary_pair_penalty = 0
         same_group_penalty = len(ordered_bases) - len(set(ordered_bases))
+        secondary_group_penalty = len(ordered_secondary) - len(set(ordered_secondary))
         for a, b in pair_indexes:
             if a < len(ordered_bases) and b < len(ordered_bases) and ordered_bases[a] == ordered_bases[b]:
                 same_pair_penalty += 1
-        return (same_pair_penalty, same_group_penalty)
+            if a < len(ordered_secondary) and b < len(ordered_secondary) and ordered_secondary[a] == ordered_secondary[b]:
+                secondary_pair_penalty += 1
+        return (same_pair_penalty, secondary_pair_penalty, same_group_penalty, secondary_group_penalty)
 
     best_order = min(preferred_orders, key=score)
     return [group[i] for i in best_order]
 
 
-def smart_draw_groups(team_names, group_sizes, avoid_same=True):
+def smart_draw_groups(team_names, group_sizes, avoid_same=True, key_func=None, secondary_key_func=None, trials=80):
+    """key_func: ฟังก์ชันคืนค่า 'กลุ่ม' ของทีมที่ไม่อยากให้อยู่สายเดียวกัน (ค่าเริ่มต้น = ชื่อสังกัด)"""
+    key_func = key_func or get_base_name
+    secondary_key_func = secondary_key_func or key_func
     teams = [t.strip() for t in team_names if t.strip()]
-    random.shuffle(teams)
 
     if not avoid_same:
+        random.shuffle(teams)
         groups = [[] for _ in group_sizes]
         capacities = list(group_sizes)
         for team in teams:
@@ -504,36 +572,61 @@ def smart_draw_groups(team_names, group_sizes, avoid_same=True):
                     break
         return [arrange_group_for_first_round(group, capacity) for group, capacity in zip(groups, capacities)]
 
-    team_objects = [{"name": team, "base": get_base_name(team)} for team in teams]
+    team_objects = [{"name": team, "base": key_func(team), "secondary": secondary_key_func(team)} for team in teams]
     base_counts = defaultdict(int)
     for item in team_objects:
         base_counts[item["base"]] += 1
 
-    team_objects.sort(key=lambda item: (base_counts[item["base"]], random.random()), reverse=True)
-
-    groups = [[] for _ in group_sizes]
     capacities = list(group_sizes)
 
-    for item in team_objects:
-        available = [gi for gi in range(len(groups)) if len(groups[gi]) < capacities[gi]]
-        if not available:
-            raise ValueError("ไม่สามารถจัดสายได้ กรุณาลองใหม่")
+    def duplicate_pairs(values):
+        counts = Counter(v for v in values if v)
+        return sum(n * (n - 1) // 2 for n in counts.values())
 
-        def rank_group(gi):
-            existing_bases = [member["base"] for member in groups[gi]]
-            same_base_count = existing_bases.count(item["base"])
-            size_penalty = len(groups[gi])
-            capacity_penalty = capacities[gi]
-            return (same_base_count, size_penalty, capacity_penalty, random.random())
+    def draw_once():
+        ordered = sorted(team_objects, key=lambda item: (base_counts[item["base"]], random.random()), reverse=True)
+        groups = [[] for _ in group_sizes]
+        for item in ordered:
+            available = [gi for gi in range(len(groups)) if len(groups[gi]) < capacities[gi]]
+            if not available:
+                raise ValueError("ไม่สามารถจัดสายได้ กรุณาลองใหม่")
 
-        best_group = min(available, key=rank_group)
-        groups[best_group].append(item)
+            def rank_group(gi):
+                primary = [member["base"] for member in groups[gi]]
+                secondary = [member["secondary"] for member in groups[gi]]
+                return (
+                    primary.count(item["base"]),
+                    secondary.count(item["secondary"]),
+                    len(groups[gi]),
+                    capacities[gi],
+                    random.random(),
+                )
+
+            groups[min(available, key=rank_group)].append(item)
+        return groups
+
+    def draw_score(groups):
+        primary_pairs = sum(duplicate_pairs([m["base"] for m in group]) for group in groups)
+        secondary_pairs = sum(duplicate_pairs([m["secondary"] for m in group]) for group in groups)
+        primary_groups = sum(len(g) != len({m["base"] for m in g}) for g in groups)
+        secondary_groups = sum(len(g) != len({m["secondary"] for m in g}) for g in groups)
+        return (primary_pairs, primary_groups, secondary_pairs, secondary_groups)
+
+    best_groups, best_score = None, None
+    for _ in range(max(1, trials)):
+        candidate = draw_once()
+        score = draw_score(candidate)
+        if best_score is None or score < best_score:
+            best_groups, best_score = candidate, score
+            if score == (0, 0, 0, 0):
+                break
 
     arranged_groups = []
-    for group, capacity in zip(groups, capacities):
-        arranged = arrange_group_for_first_round([item["name"] for item in group], capacity)
-        arranged_groups.append(arranged)
-
+    for group, capacity in zip(best_groups, capacities):
+        arranged_groups.append(arrange_group_for_first_round(
+            [item["name"] for item in group], capacity,
+            key_func=key_func, secondary_key_func=secondary_key_func,
+        ))
     return arranged_groups
 
 
@@ -1476,7 +1569,25 @@ def dashboard():
         ).fetchall()
 
     create_ok, create_message = can_create_tournament(user)
-    return render_template("dashboard.html", tournaments=tournaments, create_ok=create_ok, create_message=create_message)
+    batches = db.execute(
+        """
+        SELECT b.id, b.name, b.subtitle, b.created_at,
+               (SELECT COUNT(*) FROM tournaments t WHERE t.batch_id = b.id) AS event_count
+        FROM tournament_batches b
+        WHERE ? = 'super_admin' OR b.owner_id = ?
+        ORDER BY b.id DESC
+        """,
+        (user["role"], user["id"]),
+    ).fetchall()
+    batch_names = {b["id"]: b["name"] for b in batches}
+    return render_template(
+        "dashboard.html",
+        tournaments=tournaments,
+        create_ok=create_ok,
+        create_message=create_message,
+        batches=batches,
+        batch_names=batch_names,
+    )
 
 
 @app.route("/users", methods=["GET", "POST"])
@@ -2593,6 +2704,669 @@ def delete_tournament(tournament_id):
     return redirect(url_for("dashboard"))
 
 
+# ------------------------- bulk events: นำเข้าจาก Excel / สร้างหลายอีเวนต์ / ส่งออก Excel -------------------------
+DEFAULT_RIGHT_LOGO = os.path.join(BASE_DIR, "static", "tbf_logo.png")
+BULK_DEFAULT_OFF_CATEGORIES = {"ชู้ตติ้ง"}
+AVOID_MODES = {
+    "province": "แยกทีมจังหวัดเดียวกัน",
+    "org": "แยกทีมหน่วยงานเดียวกัน",
+    "none": "สุ่มอิสระ",
+}
+
+
+def preview_group_count(team_count, competition_type):
+    if competition_type == "knockout":
+        return max(1, math.ceil(team_count / 2)) if team_count >= 2 else None
+    if team_count < 3:
+        return None
+    return calculate_group_count(team_count)
+
+
+def draw_first_round(team_names, competition_type, manual_group_count=None, avoid_same=True, key_func=None, secondary_key_func=None):
+    """จับสลากรอบแรก (ตรรกะเดียวกับหน้าสร้างทัวร์นาเมนต์) คืน (groups, qualify_per_group)"""
+    if competition_type == "double_knockout":
+        if len(team_names) < 3:
+            raise ValueError("Double knockout ต้องมีอย่างน้อย 3 ทีม")
+        group_sizes = calculate_group_sizes(len(team_names), manual_group_count)
+        groups = smart_draw_groups(
+            team_names, group_sizes, avoid_same=avoid_same,
+            key_func=key_func, secondary_key_func=secondary_key_func,
+        )
+        for grp in groups:
+            while len(grp) < 4:
+                grp.append("X")
+        return reorder_groups_to_push_byes_last(groups), 2
+
+    if len(team_names) < 2:
+        raise ValueError("ต้องมีอย่างน้อย 2 ทีม")
+    group_count = manual_group_count or max(1, math.ceil(len(team_names) / 2))
+    if group_count > len(team_names):
+        raise ValueError("จำนวนสายมากกว่าจำนวนทีมไม่ได้")
+    groups = smart_draw_groups(
+        team_names, [2] * group_count, avoid_same=avoid_same,
+        key_func=key_func, secondary_key_func=secondary_key_func,
+    )
+    for grp in groups:
+        while len(grp) < 2:
+            grp.append("X")
+    return groups, 1
+
+
+def make_avoid_key(avoid_mode, province_map):
+    if avoid_mode == "province":
+        return lambda name: (province_map.get(name) or "").strip() or get_base_name(name)
+    return get_base_name
+
+
+def make_secondary_avoid_key(avoid_mode, province_map):
+    """เกณฑ์รองช่วยคละทั้งจังหวัดและหน่วยงานพร้อมกัน"""
+    if avoid_mode == "province":
+        return get_base_name
+    if avoid_mode == "org":
+        return lambda name: (province_map.get(name) or "").strip() or get_base_name(name)
+    return get_base_name
+
+
+def get_batch_for_user(batch_id, user):
+    db = get_db()
+    batch = db.execute("SELECT * FROM tournament_batches WHERE id = ?", (batch_id,)).fetchone()
+    if not batch or not user:
+        return None
+    if user["role"] != "super_admin" and batch["owner_id"] != user["id"]:
+        return None
+    return batch
+
+
+def get_draft_for_user(draft_id, user):
+    row = get_db().execute("SELECT * FROM import_drafts WHERE id = ?", (draft_id,)).fetchone()
+    if not row or (user["role"] != "super_admin" and row["owner_id"] != user["id"]):
+        return None
+    return row
+
+
+def read_logo_upload(field_name):
+    f = request.files.get(field_name)
+    if not f or not f.filename:
+        return None
+    data = f.read()
+    if not data or len(data) > 5 * 1024 * 1024:
+        return None
+    return data
+
+
+def logo_sources_for_batch(batch):
+    left = batch["left_logo"] if batch else None
+    right = None
+    if batch and batch["right_logo"]:
+        right = batch["right_logo"]
+    elif not batch or batch["use_default_right_logo"]:
+        right = DEFAULT_RIGHT_LOGO
+    return left, right
+
+
+def tournament_has_scores(tournament_id):
+    row = get_db().execute(
+        """
+        SELECT COUNT(*) AS n FROM round_scores
+        WHERE score IS NOT NULL AND round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)
+        """,
+        (tournament_id,),
+    ).fetchone()
+    return (row["n"] or 0) > 0
+
+
+def tournament_mix_audit(tournament_id):
+    """สรุปความถี่การซ้ำจังหวัด/หน่วยงานในสายของรอบแรก"""
+    db = get_db()
+    round_row = db.execute(
+        "SELECT id FROM tournament_rounds WHERE tournament_id = ? ORDER BY round_no LIMIT 1",
+        (tournament_id,),
+    ).fetchone()
+    if not round_row:
+        return {"province_pairs": 0, "org_pairs": 0, "province_groups": 0, "org_groups": 0}
+    teams = db.execute(
+        "SELECT display_name, base_name, province FROM tournament_teams WHERE tournament_id = ?",
+        (tournament_id,),
+    ).fetchall()
+    meta = {t["display_name"]: t for t in teams}
+    slots = db.execute(
+        "SELECT group_no, team_name FROM round_slots WHERE round_id = ? AND is_bye = 0 ORDER BY group_no, slot_no",
+        (round_row["id"],),
+    ).fetchall()
+    by_group = defaultdict(list)
+    for slot in slots:
+        if slot["team_name"]:
+            by_group[slot["group_no"]].append(slot["team_name"])
+
+    def pair_count(values):
+        return sum(n * (n - 1) // 2 for n in Counter(v for v in values if v).values())
+
+    province_pairs = org_pairs = province_groups = org_groups = 0
+    for names in by_group.values():
+        provinces = [(meta.get(name)["province"] if meta.get(name) else "") or "" for name in names]
+        orgs = [(meta.get(name)["base_name"] if meta.get(name) else get_base_name(name)) for name in names]
+        pp, op = pair_count(provinces), pair_count(orgs)
+        province_pairs += pp
+        org_pairs += op
+        province_groups += int(pp > 0)
+        org_groups += int(op > 0)
+    return {
+        "province_pairs": province_pairs,
+        "org_pairs": org_pairs,
+        "province_groups": province_groups,
+        "org_groups": org_groups,
+    }
+
+
+def build_export_event(tournament, rounds_mode="all"):
+    """เตรียมข้อมูลของ 1 ทัวร์นาเมนต์สำหรับไฟล์ Excel ตารางแบ่งสาย"""
+    db = get_db()
+    round_views = get_round_views(tournament["id"])
+    if rounds_mode == "first":
+        round_views = round_views[:1]
+    elif rounds_mode == "latest":
+        round_views = round_views[-1:]
+
+    title = tournament["event_label"] or tournament["name"]
+    rounds = []
+    for rv in round_views:
+        rnd = rv["round"]
+        label = "รอบแรก" if rnd["round_no"] == 1 else rnd["round_name"]
+        # ใช้เฉพาะคะแนนที่กรอกจริง (ไม่เอาคะแนนอัตโนมัติจากบาย)
+        entered = build_round_score_map(
+            db.execute("SELECT * FROM round_scores WHERE round_id = ?", (rnd["id"],)).fetchall()
+        )
+        groups = []
+        for gv in rv["group_views"]:
+            slots_out = []
+            slots = gv["slots"]
+            for idx, slot in enumerate(slots):
+                court = slot.get("court_name") if idx % 2 == 0 else None
+                scores = [entered.get((gv["group_no"], slot["slot_no"], s)) for s in (1, 2, 3)]
+                if slot.get("is_bye"):
+                    scores = [None, None, None]
+                slots_out.append({
+                    "no": slot.get("display_slot_no"),
+                    "name": slot.get("team_name") or slot.get("display_name"),
+                    "court": court,
+                    "scores": scores,
+                })
+            result = gv.get("result") or {}
+            qualified = [
+                (s.get("team_name") or s.get("display_name"))
+                for s in (result.get("qualified") or [])
+                if s
+            ]
+            groups.append({"group_no": gv["group_no"], "slots": slots_out, "qualified": qualified})
+        rounds.append({"label": label, "round_type": rnd["round_type"], "groups": groups})
+
+    # รายชื่อทีม + สาย/ลำดับจากรอบแรก
+    first_pos = {}
+    all_views = get_round_views(tournament["id"])
+    if all_views:
+        for gv in all_views[0]["group_views"]:
+            for slot in gv["slots"]:
+                if not slot.get("is_bye") and slot.get("team_name"):
+                    first_pos[slot["team_name"]] = (gv["group_no"], slot.get("display_slot_no"))
+    teams = []
+    for t in db.execute(
+        "SELECT * FROM tournament_teams WHERE tournament_id = ? ORDER BY id", (tournament["id"],)
+    ).fetchall():
+        keys = t.keys()
+        grp_no, no = first_pos.get(t["display_name"], (None, None))
+        teams.append({
+            "display": t["display_name"],
+            "name": (t["full_name"] if "full_name" in keys else None) or t["display_name"],
+            "district": t["district"] if "district" in keys else "",
+            "province": t["province"] if "province" in keys else "",
+            "group_no": grp_no,
+            "no": no,
+        })
+    teams.sort(key=lambda x: (x["no"] is None, x["no"] or 0))
+
+    return {
+        "title": title,
+        "label": bulk_events.export_event_label(title),
+        "rounds": rounds,
+        "teams": teams,
+    }
+
+
+def excel_response(tournaments, subtitle, batch=None, rounds_mode="all", filename="ตารางแบ่งสาย.xlsx"):
+    events = [build_export_event(t, rounds_mode) for t in tournaments]
+    left, right = logo_sources_for_batch(batch)
+    data = bulk_events.build_draw_workbook(events, subtitle or "", left_logo=left, right_logo=right)
+    return send_file(
+        data,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/tournaments/import", methods=["GET", "POST"])
+@login_required
+def import_events():
+    user = current_user()
+    if request.method == "POST":
+        f = request.files.get("file")
+        if not f or not f.filename:
+            flash("กรุณาเลือกไฟล์ Excel", "error")
+            return redirect(url_for("import_events"))
+        try:
+            sheets = bulk_events.read_workbook_rows(f.read(), f.filename)
+            parsed = bulk_events.parse_events(sheets)
+        except ValueError as e:
+            flash(str(e), "error")
+            return redirect(url_for("import_events"))
+        except Exception as e:  # ไฟล์เสีย / อ่านไม่ได้
+            flash(f"อ่านไฟล์ไม่สำเร็จ: {e}", "error")
+            return redirect(url_for("import_events"))
+
+        if not parsed["events"]:
+            flash("ไม่พบประเภทการแข่งขันในไฟล์ (ต้องมีแถวหัวข้อขึ้นต้นด้วย 'ประเภท...' ตามด้วยรายชื่อทีม)", "error")
+            return redirect(url_for("import_events"))
+
+        parsed["events"].sort(key=bulk_events.event_sort_key)
+        db = get_db()
+        cutoff = (now_dt() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
+        db.execute("DELETE FROM import_drafts WHERE created_at < ?", (cutoff,))
+        cur = db.execute(
+            "INSERT INTO import_drafts (owner_id, filename, payload_json, created_at) VALUES (?, ?, ?, ?)",
+            (user["id"], f.filename, json.dumps(parsed, ensure_ascii=False), now_str()),
+        )
+        db.commit()
+        return redirect(url_for("import_preview", draft_id=cur.lastrowid))
+
+    batches = get_db().execute(
+        """
+        SELECT b.*, (SELECT COUNT(*) FROM tournaments t WHERE t.batch_id = b.id) AS event_count
+        FROM tournament_batches b
+        WHERE ? = 'super_admin' OR b.owner_id = ?
+        ORDER BY b.id DESC
+        """,
+        (user["role"], user["id"]),
+    ).fetchall()
+    return render_template("import_events.html", batches=batches)
+
+
+@app.route("/tournaments/import/<int:draft_id>")
+@login_required
+def import_preview(draft_id):
+    user = current_user()
+    draft = get_draft_for_user(draft_id, user)
+    if not draft:
+        flash("ไม่พบข้อมูลที่นำเข้า กรุณาอัปโหลดไฟล์ใหม่", "error")
+        return redirect(url_for("import_events"))
+    parsed = json.loads(draft["payload_json"])
+    events = parsed["events"]
+    for idx, ev in enumerate(events):
+        ev["idx"] = idx
+        n = len(ev["teams"])
+        ev["groups_dk_auto"] = preview_group_count(n, "double_knockout")
+        ev["groups_ko"] = preview_group_count(n, "knockout")
+        suggested = ev.get("suggested_group_count")
+        source = ev.get("group_count_source")
+        if not suggested:
+            suggested = bulk_events.default_group_count(ev)
+            source = "summary" if suggested else None
+        ev["group_count_note"] = None
+        if suggested and valid_group_count(n, suggested):
+            ev["suggested_group_count"] = suggested
+            ev["group_count_source"] = source
+        else:
+            if suggested:
+                ev["group_count_note"] = f"ไฟล์ระบุ {suggested} สาย แต่ไม่พอดีกับ {n} ทีม ระบบจึงใช้อัตโนมัติ"
+            ev["suggested_group_count"] = None
+            ev["group_count_source"] = None
+        ev["groups_dk"] = ev["suggested_group_count"] or ev["groups_dk_auto"]
+        ev["default_on"] = ev["category"] not in BULK_DEFAULT_OFF_CATEGORIES
+    lines = parsed.get("title_lines") or []
+    default_subtitle = " ".join(lines[:2]).strip()
+    default_batch_name = (lines[1] if len(lines) > 1 else (lines[0] if lines else "")) or os.path.splitext(draft["filename"] or "")[0]
+    categories = [c for c in bulk_events.CATEGORY_ORDER if any(e["category"] == c for e in events)]
+    ages = sorted({e["age"] for e in events if e["age"]})
+    create_ok, create_message = can_create_tournament(user)
+    return render_template(
+        "import_preview.html",
+        draft=draft,
+        events=events,
+        categories=categories,
+        ages=ages,
+        default_subtitle=default_subtitle,
+        default_batch_name=default_batch_name,
+        title_lines=lines,
+        avoid_modes=AVOID_MODES,
+        create_ok=create_ok,
+        create_message=create_message,
+        quota=None if user["role"] == "super_admin" else user["create_quota"],
+    )
+
+
+@app.route("/tournaments/import/<int:draft_id>/create", methods=["POST"])
+@login_required
+def import_create(draft_id):
+    user = current_user()
+    draft = get_draft_for_user(draft_id, user)
+    if not draft:
+        flash("ไม่พบข้อมูลที่นำเข้า กรุณาอัปโหลดไฟล์ใหม่", "error")
+        return redirect(url_for("import_events"))
+    ok, message = can_create_tournament(user)
+    if not ok:
+        flash(message, "error")
+        return redirect(url_for("import_preview", draft_id=draft_id))
+
+    parsed = json.loads(draft["payload_json"])
+    events = parsed["events"]
+    selected = []
+    selected_seen = set()
+    for raw in request.form.getlist("events"):
+        try:
+            idx = int(raw)
+        except ValueError:
+            continue
+        if 0 <= idx < len(events) and idx not in selected_seen:
+            selected.append(idx)
+            selected_seen.add(idx)
+    if not selected:
+        flash("กรุณาเลือกอย่างน้อย 1 ประเภท", "error")
+        return redirect(url_for("import_preview", draft_id=draft_id))
+    if user["role"] != "super_admin" and user["create_quota"] < len(selected):
+        flash(f"โควตาสร้างทัวร์นาเมนต์เหลือ {user['create_quota']} รายการ แต่เลือกไว้ {len(selected)} รายการ", "error")
+        return redirect(url_for("import_preview", draft_id=draft_id))
+
+    competition_type = request.form.get("competition_type", "double_knockout")
+    if competition_type not in {"double_knockout", "knockout"}:
+        competition_type = "double_knockout"
+    avoid_mode = request.form.get("avoid_mode", "province")
+    if avoid_mode not in AVOID_MODES:
+        avoid_mode = "province"
+    abbreviate = request.form.get("abbreviate") == "on"
+    batch_name = request.form.get("batch_name", "").strip() or (draft["filename"] or "ชุดการแข่งขัน")
+    subtitle = request.form.get("subtitle", "").strip()
+    name_prefix = request.form.get("name_prefix", "").strip()
+    use_default_right = 1 if request.form.get("use_default_right_logo") == "on" else 0
+
+    db = get_db()
+    cur = db.execute(
+        """
+        INSERT INTO tournament_batches (name, subtitle, owner_id, left_logo, right_logo, use_default_right_logo, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (batch_name, subtitle, user["id"], read_logo_upload("left_logo"), read_logo_upload("right_logo"), use_default_right, now_str()),
+    )
+    batch_id = cur.lastrowid
+
+    created, errors = 0, []
+    for order, idx in enumerate(selected, start=1):
+        ev = events[idx]
+        prepared = bulk_events.prepare_team_names(ev["teams"], abbreviate=abbreviate)
+        names = [p["display"] for p in prepared]
+        province_map = {p["display"]: p.get("province") for p in prepared}
+        manual_raw = request.form.get(f"group_count_{idx}", "").strip()
+        try:
+            manual_group_count = int(manual_raw) if manual_raw else None
+            if manual_group_count is not None and manual_group_count <= 0:
+                manual_group_count = None
+            groups, qualify_per_group = draw_first_round(
+                names,
+                competition_type,
+                manual_group_count,
+                avoid_same=(avoid_mode != "none"),
+                key_func=make_avoid_key(avoid_mode, province_map),
+                secondary_key_func=make_secondary_avoid_key(avoid_mode, province_map),
+            )
+        except ValueError as e:
+            errors.append(f"{ev['title']}: {e}")
+            continue
+
+        tname = f"{name_prefix} {ev['title']}".strip() if name_prefix else ev["title"]
+        cur = db.execute(
+            """
+            INSERT INTO tournaments
+            (name, owner_id, team_count, group_count, group_sizes_json, avoid_same, competition_type, qualify_per_group,
+             status, created_at, batch_id, event_label, event_category, event_gender, event_age, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tname, user["id"], len(names), len(groups), ",".join(str(len(x)) for x in groups),
+                0 if avoid_mode == "none" else 1, competition_type, qualify_per_group, now_str(),
+                batch_id, ev["title"], ev["category"], ev["gender"], ev["age"], order,
+            ),
+        )
+        tournament_id = cur.lastrowid
+        for p in prepared:
+            db.execute(
+                """
+                INSERT INTO tournament_teams (tournament_id, display_name, base_name, created_at, full_name, district, province)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (tournament_id, p["display"], get_base_name(p["display"]), now_str(), p["name"], p.get("district"), p.get("province")),
+            )
+        create_round(tournament_id, 1, "รอบที่ 1", competition_type, groups)
+        created += 1
+    db.commit()
+    for _ in range(created):
+        consume_quota(user["id"])
+
+    if created:
+        flash(f"สร้างการแข่งขันสำเร็จ {created} ประเภท", "success")
+    for err in errors:
+        flash(f"สร้างไม่สำเร็จ – {err}", "error")
+    if not created:
+        db.execute("DELETE FROM tournament_batches WHERE id = ?", (batch_id,))
+        db.commit()
+        return redirect(url_for("import_preview", draft_id=draft_id))
+    return redirect(url_for("view_batch", batch_id=batch_id))
+
+
+def batch_tournaments(batch_id):
+    return get_db().execute(
+        """
+        SELECT t.*, u.username AS owner_name,
+               (SELECT COUNT(*) FROM tournament_rounds r WHERE r.tournament_id = t.id) AS round_count
+        FROM tournaments t JOIN users u ON u.id = t.owner_id
+        WHERE t.batch_id = ?
+        ORDER BY COALESCE(t.sort_order, 9999), t.id
+        """,
+        (batch_id,),
+    ).fetchall()
+
+
+@app.route("/batches/<int:batch_id>")
+@login_required
+def view_batch(batch_id):
+    user = current_user()
+    batch = get_batch_for_user(batch_id, user)
+    if not batch:
+        flash("ไม่พบชุดการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+    tournaments = batch_tournaments(batch_id)
+    categories = [c for c in bulk_events.CATEGORY_ORDER if any((t["event_category"] or "อื่นๆ") == c for t in tournaments)]
+    ages = sorted({t["event_age"] for t in tournaments if t["event_age"]})
+    mix_audits = {t["id"]: tournament_mix_audit(t["id"]) for t in tournaments}
+    return render_template(
+        "batch_detail.html",
+        batch=batch,
+        tournaments=tournaments,
+        categories=categories,
+        ages=ages,
+        avoid_modes=AVOID_MODES,
+        mix_audits=mix_audits,
+    )
+
+
+def _selected_ids():
+    ids = []
+    for raw in request.values.getlist("ids"):
+        for part in str(raw).split(","):
+            if part.strip().isdigit():
+                ids.append(int(part))
+    return ids
+
+
+@app.route("/batches/<int:batch_id>/export")
+@login_required
+def export_batch(batch_id):
+    user = current_user()
+    batch = get_batch_for_user(batch_id, user)
+    if not batch:
+        flash("ไม่พบชุดการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+    tournaments = batch_tournaments(batch_id)
+    ids = set(_selected_ids())
+    if ids:
+        tournaments = [t for t in tournaments if t["id"] in ids]
+    if not tournaments:
+        flash("กรุณาเลือกอย่างน้อย 1 ประเภท", "error")
+        return redirect(url_for("view_batch", batch_id=batch_id))
+    rounds_mode = request.args.get("rounds", "all")
+    suffix = "" if len(tournaments) != 1 else f"_{tournaments[0]['event_label'] or tournaments[0]['name']}"
+    filename = f"ตารางแบ่งสาย_{batch['name']}{suffix}.xlsx".replace("/", "-")
+    return excel_response(tournaments, batch["subtitle"], batch=batch, rounds_mode=rounds_mode, filename=filename)
+
+
+@app.route("/tournaments/<int:tournament_id>/export-excel")
+def export_tournament_excel(tournament_id):
+    db = get_db()
+    tournament = db.execute("SELECT * FROM tournaments WHERE id = ?", (tournament_id,)).fetchone()
+    if not tournament:
+        flash("ไม่พบทัวร์นาเมนต์", "error")
+        return redirect(url_for("home"))
+    batch = None
+    if tournament["batch_id"]:
+        batch = db.execute("SELECT * FROM tournament_batches WHERE id = ?", (tournament["batch_id"],)).fetchone()
+    subtitle = batch["subtitle"] if batch and batch["subtitle"] else tournament["name"]
+    filename = f"ตารางแบ่งสาย_{tournament['name']}.xlsx".replace("/", "-")
+    return excel_response([tournament], subtitle, batch=batch, rounds_mode=request.args.get("rounds", "all"), filename=filename)
+
+
+@app.route("/batches/<int:batch_id>/update", methods=["POST"])
+@login_required
+def update_batch(batch_id):
+    user = current_user()
+    batch = get_batch_for_user(batch_id, user)
+    if not batch:
+        flash("ไม่พบชุดการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+    db = get_db()
+    name = request.form.get("name", "").strip() or batch["name"]
+    subtitle = request.form.get("subtitle", "").strip()
+    use_default_right = 1 if request.form.get("use_default_right_logo") == "on" else 0
+    left = read_logo_upload("left_logo")
+    right = read_logo_upload("right_logo")
+    left_value = None if request.form.get("remove_left_logo") == "on" else (left or batch["left_logo"])
+    right_value = None if request.form.get("remove_right_logo") == "on" else (right or batch["right_logo"])
+    db.execute(
+        "UPDATE tournament_batches SET name = ?, subtitle = ?, left_logo = ?, right_logo = ?, use_default_right_logo = ? WHERE id = ?",
+        (name, subtitle, left_value, right_value, use_default_right, batch_id),
+    )
+    db.commit()
+    flash("บันทึกข้อมูลชุดการแข่งขันแล้ว", "success")
+    return redirect(url_for("view_batch", batch_id=batch_id))
+
+
+@app.route("/batches/<int:batch_id>/redraw", methods=["POST"])
+@login_required
+def redraw_batch(batch_id):
+    """จับสลากรอบแรกใหม่ เฉพาะประเภทที่ยังไม่มีการกรอกคะแนนและยังไม่สร้างรอบถัดไป"""
+    user = current_user()
+    batch = get_batch_for_user(batch_id, user)
+    if not batch:
+        flash("ไม่พบชุดการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+    ids = set(_selected_ids())
+    avoid_mode = request.form.get("avoid_mode", "province")
+    if avoid_mode not in AVOID_MODES:
+        avoid_mode = "province"
+    db = get_db()
+    done, skipped = 0, []
+    for t in batch_tournaments(batch_id):
+        if t["id"] not in ids:
+            continue
+        if t["round_count"] > 1 or tournament_has_scores(t["id"]):
+            skipped.append(t["name"])
+            continue
+        teams = db.execute("SELECT * FROM tournament_teams WHERE tournament_id = ? ORDER BY id", (t["id"],)).fetchall()
+        names = [row["display_name"] for row in teams]
+        province_map = {row["display_name"]: row["province"] for row in teams}
+        manual = t["group_count"] if (t["competition_type"] == "knockout" or valid_group_count(len(names), t["group_count"])) else None
+        try:
+            groups, _ = draw_first_round(
+                names, t["competition_type"], manual,
+                avoid_same=(avoid_mode != "none"),
+                key_func=make_avoid_key(avoid_mode, province_map),
+                secondary_key_func=make_secondary_avoid_key(avoid_mode, province_map),
+            )
+        except ValueError as e:
+            skipped.append(f"{t['name']} ({e})")
+            continue
+        round_ids = [r["id"] for r in db.execute("SELECT id FROM tournament_rounds WHERE tournament_id = ?", (t["id"],)).fetchall()]
+        for rid in round_ids:
+            db.execute("DELETE FROM manual_group_rankings WHERE round_id = ?", (rid,))
+            db.execute("DELETE FROM round_scores WHERE round_id = ?", (rid,))
+            db.execute("DELETE FROM round_slots WHERE round_id = ?", (rid,))
+        db.execute("DELETE FROM tournament_rounds WHERE tournament_id = ?", (t["id"],))
+        db.execute("DELETE FROM eliminated_teams WHERE tournament_id = ?", (t["id"],))
+        create_round(t["id"], 1, "รอบที่ 1", t["competition_type"], groups)
+        db.execute(
+            "UPDATE tournaments SET group_count = ?, group_sizes_json = ? WHERE id = ?",
+            (len(groups), ",".join(str(len(x)) for x in groups), t["id"]),
+        )
+        done += 1
+    db.commit()
+    for t in batch_tournaments(batch_id):
+        if t["id"] in ids:
+            emit_tournament_reload(t["id"], reason="redraw")
+    if done:
+        flash(f"จับสลากใหม่แล้ว {done} ประเภท", "success")
+    if skipped:
+        flash("ข้าม (มีคะแนนหรือมีรอบถัดไปแล้ว): " + ", ".join(skipped), "error")
+    if not done and not skipped:
+        flash("กรุณาเลือกอย่างน้อย 1 ประเภท", "error")
+    return redirect(url_for("view_batch", batch_id=batch_id))
+
+
+def delete_tournament_data(db, tournament_id):
+    if table_exists(db, "manual_group_rankings"):
+        db.execute("DELETE FROM manual_group_rankings WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
+    db.execute("DELETE FROM round_scores WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
+    db.execute("DELETE FROM round_slots WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
+    db.execute("DELETE FROM tournament_rounds WHERE tournament_id = ?", (tournament_id,))
+    db.execute("DELETE FROM eliminated_teams WHERE tournament_id = ?", (tournament_id,))
+    db.execute("DELETE FROM team_pool WHERE tournament_id = ?", (tournament_id,))
+    db.execute("DELETE FROM tournament_teams WHERE tournament_id = ?", (tournament_id,))
+    db.execute("DELETE FROM tournaments WHERE id = ?", (tournament_id,))
+
+
+@app.route("/batches/<int:batch_id>/delete-selected", methods=["POST"])
+@login_required
+def delete_batch_selected(batch_id):
+    user = current_user()
+    batch = get_batch_for_user(batch_id, user)
+    if not batch:
+        flash("ไม่พบชุดการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+    ids = set(_selected_ids())
+    db = get_db()
+    removed = 0
+    for t in batch_tournaments(batch_id):
+        if t["id"] in ids:
+            delete_tournament_data(db, t["id"])
+            removed += 1
+    remaining = db.execute("SELECT COUNT(*) AS n FROM tournaments WHERE batch_id = ?", (batch_id,)).fetchone()["n"]
+    if request.form.get("delete_batch") == "1" and remaining == 0:
+        db.execute("DELETE FROM tournament_batches WHERE id = ?", (batch_id,))
+        db.commit()
+        flash(f"ลบชุดการแข่งขันแล้ว ({removed} ประเภท)", "success")
+        return redirect(url_for("dashboard"))
+    db.commit()
+    for tid in ids:
+        emit_tournament_reload(tid, reason="delete_tournament")
+    flash(f"ลบแล้ว {removed} ประเภท", "success")
+    return redirect(url_for("view_batch", batch_id=batch_id))
+
+
 @app.route("/init-db")
 def init_db_route():
     init_db()
@@ -2601,6 +3375,5 @@ def init_db_route():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8002))
     socketio.run(app, host="0.0.0.0", port=port, debug=False)
-

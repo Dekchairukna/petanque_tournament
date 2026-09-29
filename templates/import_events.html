@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}นำเข้าการแข่งขันจาก Excel{% endblock %}
+
+{% block content %}
+<div class="card" style="padding:24px; max-width:1000px; margin:0 auto 18px;">
+    <h1 style="margin-top:0;">สร้างการแข่งขันหลายประเภทจากไฟล์ Excel</h1>
+    <p class="muted">อัปโหลดไฟล์รายชื่อทีม แล้วระบบจะแยกประเภท/รุ่นอายุให้อัตโนมัติ จากนั้นเลือกได้ว่าจะสร้างประเภทไหนบ้าง (ทีเดียวทั้งหมด หรือเลือกบางประเภท)</p>
+
+    <form method="post" enctype="multipart/form-data" style="display:grid; gap:16px;">
+        <div>
+            <label style="display:block; font-weight:700; margin-bottom:8px;">ไฟล์รายชื่อ (.xls / .xlsx / .csv)</label>
+            <input type="file" name="file" accept=".xls,.xlsx,.xlsm,.csv" required>
+        </div>
+        <div style="display:flex; justify-content:flex-end;">
+            <button type="submit" class="btn">อ่านไฟล์และแสดงรายการ</button>
+        </div>
+    </form>
+
+    <details style="margin-top:18px;">
+        <summary style="cursor:pointer; font-weight:700;">รูปแบบไฟล์ที่รองรับ</summary>
+        <div class="grid-2" style="margin-top:12px;">
+            <div>
+                <strong>แบบที่ 1: แบ่งเป็นบล็อกตามประเภท</strong>
+                <table class="small" style="margin-top:6px;">
+                    <tr><td colspan="4"><b>ประเภทบุคคลชาย รุ่นอายุ 12 ปี</b></td></tr>
+                    <tr><th>ที่</th><th>ชื่ออปท.</th><th>อำเภอ</th><th>จังหวัด</th></tr>
+                    <tr><td>1</td><td>เทศบาลเมืองบ้านไผ่</td><td>บ้านไผ่</td><td>ขอนแก่น</td></tr>
+                    <tr><td>2</td><td>เทศบาลนครขอนแก่น</td><td>เมืองขอนแก่น</td><td>ขอนแก่น</td></tr>
+                    <tr><td colspan="4"><b>ประเภทบุคคลหญิง รุ่นอายุ 12 ปี</b></td></tr>
+                    <tr><td colspan="4">…</td></tr>
+                </table>
+                <div class="muted small" style="margin-top:6px;">ชีตที่ไม่มีรายชื่อทีม (เช่นชื่อรายการแข่งขัน) จะถูกใช้เป็นหัวกระดาษ</div>
+            </div>
+            <div>
+                <strong>แบบที่ 2: ตารางเดียว 1 แถวต่อ 1 ทีม</strong>
+                <table class="small" style="margin-top:6px;">
+                    <tr><th>ประเภท</th><th>รุ่นอายุ</th><th>ชื่อทีม</th><th>จังหวัด</th></tr>
+                    <tr><td>บุคคลชาย</td><td>12</td><td>ทม.บ้านไผ่</td><td>ขอนแก่น</td></tr>
+                    <tr><td>คู่ผสม</td><td>14</td><td>ทน.ขอนแก่น</td><td>ขอนแก่น</td></tr>
+                </table>
+            </div>
+        </div>
+    </details>
+</div>
+
+{% if batches %}
+<div class="card" style="max-width:1000px; margin:0 auto;">
+    <h2 style="margin-top:0;">ชุดการแข่งขันที่สร้างไว้</h2>
+    <table>
+        <thead><tr><th style="text-align:left;">ชื่อชุด</th><th>จำนวนประเภท</th><th>สร้างเมื่อ</th><th></th></tr></thead>
+        <tbody>
+        {% for b in batches %}
+        <tr>
+            <td><strong>{{ b['name'] }}</strong><div class="muted small">{{ b['subtitle'] or '' }}</div></td>
+            <td style="text-align:center;">{{ b['event_count'] }}</td>
+            <td class="small">{{ b['created_at'] }}</td>
+            <td><a class="btn" href="{{ url_for('view_batch', batch_id=b['id']) }}">เปิด</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -30,6 +30,12 @@
                 class="btn action-btn btn-print" target="_blank">ใบปริ้นสาย</a>
             <a href="{{ url_for('tournament_score_sheets', tournament_id=tournament['id']) }}"
                 class="btn action-btn btn-print" target="_blank">สกอร์ชีท</a>
+            <a href="{{ url_for('export_tournament_excel', tournament_id=tournament['id']) }}"
+                class="btn action-btn btn-print">ดาวน์โหลด Excel</a>
+            {% if tournament['batch_id'] %}
+            <a href="{{ url_for('view_batch', batch_id=tournament['batch_id']) }}"
+                class="btn action-btn btn-pool">กลับไปชุดการแข่งขัน</a>
+            {% endif %}
         </div>
     </div>
 

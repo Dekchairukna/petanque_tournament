@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}{{ batch['name'] }}{% endblock %}
+
+{% block content %}
+<style>
+    .chip{display:inline-block;border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:6px 12px;margin:3px;cursor:pointer;font-size:14px}
+    .chip.on{background:#2563eb;color:#fff;border-color:#2563eb}
+    .ev-table td,.ev-table th{padding:8px 10px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:end;padding:14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;margin-bottom:14px}
+    .toolbar select{width:auto}
+    .toolbar .grp{display:flex;flex-direction:column;gap:4px}
+    label.inline{display:flex;align-items:center;gap:8px}
+    label.inline input{width:auto}
+</style>
+
+<div class="card">
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+            <div class="muted small">ชุดการแข่งขัน</div>
+            <h1 style="margin:4px 0;">{{ batch['name'] }}</h1>
+            <div class="muted">{{ batch['subtitle'] or '' }}</div>
+            <div class="muted small" style="margin-top:6px;">{{ tournaments|length }} ประเภท · {{ tournaments|sum(attribute='team_count') }} ทีม</div>
+        </div>
+        <a class="btn success" href="{{ url_for('export_batch', batch_id=batch['id'], rounds='all') }}">ดาวน์โหลด Excel ทั้งหมด</a>
+    </div>
+</div>
+
+<div class="card">
+<form method="get" id="batch_form" action="{{ url_for('export_batch', batch_id=batch['id']) }}">
+    <div class="toolbar">
+        <div class="grp">
+            <span class="small muted">รอบที่จะส่งออก</span>
+            <select name="rounds">
+                <option value="all">ทุกรอบ</option>
+                <option value="first">รอบแรกเท่านั้น</option>
+                <option value="latest">รอบล่าสุด</option>
+            </select>
+        </div>
+        <button type="submit" class="btn success sel-btn">ดาวน์โหลด Excel ที่เลือก</button>
+        <span style="flex:1"></span>
+        <div class="grp">
+            <span class="small muted">จับสลากใหม่แบบ</span>
+            <select name="avoid_mode">
+                {% for key, label in avoid_modes.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn sel-btn" formmethod="post" formaction="{{ url_for('redraw_batch', batch_id=batch['id']) }}"
+                onclick="return confirm('จับสลากรอบแรกใหม่สำหรับประเภทที่เลือก? (เฉพาะที่ยังไม่มีคะแนน)');">จับสลากใหม่</button>
+        <button type="submit" class="btn danger sel-btn" formmethod="post" formaction="{{ url_for('delete_batch_selected', batch_id=batch['id']) }}"
+                onclick="return confirm('ลบประเภทที่เลือกทั้งหมด? ข้อมูลคะแนนจะหายด้วย');">ลบที่เลือก</button>
+    </div>
+
+    <div style="margin-bottom:10px;">
+        <span class="chip" data-act="all">เลือกทั้งหมด</span>
+        <span class="chip" data-act="none">ไม่เลือกเลย</span>
+        {% for c in categories %}<span class="chip" data-cat="{{ c }}">{{ c }}</span>{% endfor %}
+        {% for a in ages %}<span class="chip" data-age="{{ a }}">{{ a }} ปี</span>{% endfor %}
+        <span class="muted small" style="margin-left:8px;">เลือกแล้ว <strong id="sel_count">0</strong></span>
+    </div>
+
+    <div style="overflow-x:auto;">
+    <table class="ev-table">
+        <thead>
+            <tr>
+                <th style="width:36px;"><input type="checkbox" id="check_all" style="width:auto;"></th>
+                <th style="text-align:left;">ประเภท</th>
+                <th>รูปแบบ</th>
+                <th>ทีม</th>
+                <th>สาย</th>
+                <th>รอบ</th>
+                <th>ตรวจการคละทีม</th>
+                <th>จัดการ</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for t in tournaments %}
+            <tr class="ev-row" data-cat="{{ t['event_category'] or 'อื่นๆ' }}" data-age="{{ t['event_age'] or '' }}">
+                <td style="text-align:center;"><input type="checkbox" name="ids" value="{{ t['id'] }}" class="ev-check" style="width:auto;"></td>
+                <td><strong>{{ t['name'] }}</strong></td>
+                <td style="text-align:center;" class="small">{{ competition_type_label(t['competition_type']) }}</td>
+                <td style="text-align:center;">{{ t['team_count'] }}</td>
+                <td style="text-align:center;">{{ t['group_count'] }}</td>
+                <td style="text-align:center;">{{ t['round_count'] }}</td>
+                {% set audit = mix_audits.get(t['id']) %}
+                <td style="text-align:center;" class="small">
+                    {% if audit.province_pairs == 0 and audit.org_pairs == 0 %}
+                    <span style="color:#047857;font-weight:700;">คละสมบูรณ์</span>
+                    {% else %}
+                    จังหวัดซ้ำ {{ audit.province_pairs }} คู่ / {{ audit.province_groups }} สาย<br>
+                    หน่วยงานซ้ำ {{ audit.org_pairs }} คู่ / {{ audit.org_groups }} สาย
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="actions">
+                        <a class="btn" href="{{ url_for('view_tournament', tournament_id=t['id']) }}">เปิด</a>
+                        <a class="btn secondary" href="{{ url_for('print_groups_sheet', tournament_id=t['id']) }}" target="_blank">ใบปริ้นสาย</a>
+                        <a class="btn success" href="{{ url_for('export_tournament_excel', tournament_id=t['id']) }}">Excel</a>
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</form>
+</div>
+
+<div class="card">
+    <details>
+        <summary style="cursor:pointer; font-weight:700;">ตั้งค่าหัวกระดาษ / โลโก้ของไฟล์ Excel</summary>
+        <form method="post" action="{{ url_for('update_batch', batch_id=batch['id']) }}" enctype="multipart/form-data" class="grid-2" style="margin-top:14px;">
+            <div>
+                <label style="font-weight:700;">ชื่อชุดการแข่งขัน</label>
+                <input type="text" name="name" value="{{ batch['name'] }}">
+            </div>
+            <div>
+                <label style="font-weight:700;">หัวกระดาษบรรทัดที่ 2</label>
+                <input type="text" name="subtitle" value="{{ batch['subtitle'] or '' }}">
+            </div>
+            <div>
+                <label style="font-weight:700;">โลโก้ซ้าย {% if batch['left_logo'] %}<span class="muted small">(มีแล้ว)</span>{% endif %}</label>
+                <input type="file" name="left_logo" accept="image/png,image/jpeg">
+                {% if batch['left_logo'] %}<label class="inline small" style="margin-top:6px;"><input type="checkbox" name="remove_left_logo"> ลบโลโก้ซ้าย</label>{% endif %}
+            </div>
+            <div>
+                <label style="font-weight:700;">โลโก้ขวา {% if batch['right_logo'] %}<span class="muted small">(มีแล้ว)</span>{% endif %}</label>
+                <input type="file" name="right_logo" accept="image/png,image/jpeg">
+                {% if batch['right_logo'] %}<label class="inline small" style="margin-top:6px;"><input type="checkbox" name="remove_right_logo"> ลบโลโก้ขวา</label>{% endif %}
+                <label class="inline small" style="margin-top:6px;"><input type="checkbox" name="use_default_right_logo" {% if batch['use_default_right_logo'] %}checked{% endif %}> ถ้าไม่มีโลโก้ขวา ใช้โลโก้ TBF</label>
+            </div>
+            <div style="grid-column:1/-1; display:flex; justify-content:flex-end;">
+                <button type="submit" class="btn">บันทึก</button>
+            </div>
+        </form>
+    </details>
+</div>
+
+<script>
+(function(){
+    const rows = Array.from(document.querySelectorAll('.ev-row'));
+    const box = r => r.querySelector('.ev-check');
+    function refresh(){
+        const n = rows.filter(r => box(r).checked).length;
+        document.getElementById('sel_count').textContent = n;
+        document.getElementById('check_all').checked = n > 0 && n === rows.length;
+        document.querySelectorAll('.sel-btn').forEach(b => b.disabled = n === 0);
+        document.querySelectorAll('.chip[data-cat],.chip[data-age]').forEach(ch => {
+            const k = ch.dataset.cat ? 'cat' : 'age';
+            const group = rows.filter(r => r.dataset[k] === ch.dataset[k]);
+            ch.classList.toggle('on', group.length > 0 && group.every(r => box(r).checked));
+        });
+    }
+    function toggleGroup(key, value){
+        const group = rows.filter(r => r.dataset[key] === value);
+        const allOn = group.every(r => box(r).checked);
+        group.forEach(r => box(r).checked = !allOn);
+        refresh();
+    }
+    document.querySelectorAll('.chip').forEach(ch => ch.addEventListener('click', () => {
+        if(ch.dataset.act === 'all'){ rows.forEach(r => box(r).checked = true); return refresh(); }
+        if(ch.dataset.act === 'none'){ rows.forEach(r => box(r).checked = false); return refresh(); }
+        if(ch.dataset.cat) return toggleGroup('cat', ch.dataset.cat);
+        if(ch.dataset.age) return toggleGroup('age', ch.dataset.age);
+    }));
+    document.getElementById('check_all').addEventListener('change', e => { rows.forEach(r => box(r).checked = e.target.checked); refresh(); });
+    rows.forEach(r => box(r).addEventListener('change', refresh));
+    refresh();
+})();
+</script>
+{% endblock %}

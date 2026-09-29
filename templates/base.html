@@ -28,6 +28,7 @@
     {% if current_user %}
       <a href="{{ url_for('dashboard') }}">แดชบอร์ด</a>
       <a href="{{ url_for('create_tournament') }}">สร้างทัวร์นาเมนต์</a>
+      <a href="{{ url_for('import_events') }}">นำเข้าจาก Excel (หลายประเภท)</a>
       {% if current_user['role'] == 'super_admin' %}
       <a href="{{ url_for('manage_users') }}">จัดการผู้ใช้</a>
       {% endif %}
