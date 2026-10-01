@@ -1,3 +1,4 @@
+import io
 import json
 import math
 import os
@@ -1832,11 +1833,62 @@ def print_groups_sheet(tournament_id):
         flash("ยังไม่มีข้อมูลรอบแข่งขัน", "error")
         return redirect(url_for("view_tournament", tournament_id=tournament_id))
 
+    batch = None
+    if tournament["batch_id"]:
+        batch = db.execute(
+            "SELECT * FROM tournament_batches WHERE id = ?", (tournament["batch_id"],)
+        ).fetchone()
+    has_left_logo = bool(batch and batch["left_logo"])
+    has_right_logo = bool(
+        batch and (batch["right_logo"] or batch["use_default_right_logo"])
+    )
+
     return render_template(
         "print_groups_sheet.html",
         tournament=tournament,
         round_views=round_views,
+        has_left_logo=has_left_logo,
+        has_right_logo=has_right_logo,
     )
+
+
+def image_mimetype(data):
+    raw = bytes(data or b"")
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    return "application/octet-stream"
+
+
+@app.route("/tournaments/<int:tournament_id>/logo/<side>")
+def tournament_print_logo(tournament_id, side):
+    if side not in {"left", "right"}:
+        return "ไม่พบโลโก้", 404
+    db = get_db()
+    tournament = db.execute(
+        "SELECT batch_id FROM tournaments WHERE id = ?", (tournament_id,)
+    ).fetchone()
+    if not tournament or not tournament["batch_id"]:
+        return "ไม่พบโลโก้", 404
+    batch = db.execute(
+        "SELECT left_logo, right_logo, use_default_right_logo FROM tournament_batches WHERE id = ?",
+        (tournament["batch_id"],),
+    ).fetchone()
+    if not batch:
+        return "ไม่พบโลโก้", 404
+
+    data = batch["left_logo"] if side == "left" else batch["right_logo"]
+    if data:
+        return send_file(
+            io.BytesIO(bytes(data)), mimetype=image_mimetype(data),
+            max_age=3600, download_name=f"{side}-logo",
+        )
+    if side == "right" and batch["use_default_right_logo"] and os.path.exists(DEFAULT_RIGHT_LOGO):
+        return send_file(DEFAULT_RIGHT_LOGO, mimetype="image/png", max_age=3600)
+    return "ไม่พบโลโก้", 404
 
 
 
