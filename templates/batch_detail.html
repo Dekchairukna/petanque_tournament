@@ -26,6 +26,18 @@
 </div>
 
 <div class="card">
+    <h2 style="margin-top:0;">นำเข้าผลจับฉลากที่จัดไว้แล้ว</h2>
+    <p class="muted small">เลือกได้หลายไฟล์พร้อมกัน ระบบจะตรวจประเภท–อายุ–เพศและรายชื่อทุกทีม แล้วแทนรอบแรกตามตำแหน่งสายและ X ในไฟล์ เฉพาะรายการที่ยังไม่มีคะแนนหรือรอบถัดไป</p>
+    <form method="post" action="{{ url_for('import_batch_pairings', batch_id=batch['id']) }}" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+        <div style="flex:1;min-width:280px;">
+            <label style="font-weight:700;display:block;margin-bottom:6px;">ไฟล์ตารางจับฉลาก (.xls / .xlsx)</label>
+            <input type="file" name="pairing_files" accept=".xls,.xlsx" multiple required>
+        </div>
+        <button type="submit" class="btn success" onclick="return confirm('ตรวจและแทนผลจับฉลากรอบแรกจากไฟล์ที่เลือก?');">นำเข้าและแทนรอบแรก</button>
+    </form>
+</div>
+
+<div class="card">
 <form method="get" id="batch_form" action="{{ url_for('export_batch', batch_id=batch['id']) }}">
     <div class="toolbar">
         <div class="grp">

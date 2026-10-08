@@ -361,6 +361,74 @@ def parse_events(sheets):
     return {"title_lines": title_lines, "events": result}
 
 
+def parse_draw_pairings(sheets):
+    """อ่านไฟล์ตารางจับฉลากและคงตำแหน่งสาย/ทีม/X ตามไฟล์เดิม"""
+    events = []
+    for sheet_index, (sheet_name, data_rows) in enumerate(sheets):
+        if not sheet_name.strip().lower().startswith("data "):
+            continue
+        draw_sheet = None
+        for candidate_name, candidate_rows in sheets[sheet_index + 1:]:
+            if candidate_name.strip().lower().startswith("data "):
+                break
+            draw_sheet = (candidate_name, candidate_rows)
+            break
+        if not draw_sheet:
+            continue
+
+        raw_title = re.sub(r"^data\s+", "", sheet_name.strip(), flags=re.I)
+        raw_title = re.sub(r"^ช\.", "ชาย ", raw_title)
+        raw_title = re.sub(r"^ญ\.", "หญิง ", raw_title)
+        title = clean_event_title(raw_title)
+        category, gender, age = classify_event(title)
+        groups = []
+        draw_name, draw_rows = draw_sheet
+        for row_index, cells in enumerate(draw_rows):
+            group_col = next((i for i, value in enumerate(cells) if value.strip() == "สายที่"), None)
+            if group_col is None or not _get(cells, group_col + 1).strip():
+                continue
+            header_row = team_col = None
+            for probe in range(row_index + 1, min(row_index + 6, len(draw_rows))):
+                col = next((i for i, value in enumerate(draw_rows[probe]) if "รายชื่อทีม" in value), None)
+                if col is not None:
+                    header_row, team_col = probe, col
+                    break
+            if header_row is None:
+                continue
+            names = []
+            for team_row in draw_rows[header_row + 1:header_row + 7]:
+                value = _get(team_row, team_col).strip()
+                if value:
+                    names.append(value)
+                if len(names) == 4:
+                    break
+            if len(names) == 4:
+                groups.append(names)
+
+        if not groups:
+            continue
+        source_teams = []
+        for cells in data_rows:
+            seq = _get(cells, 0).translate(THAI_DIGITS)
+            name = _get(cells, 1).strip()
+            if re.fullmatch(r"\d+", seq) and name:
+                source_teams.append(name)
+        drawn_teams = [name for group in groups for name in group if name and name != "X"]
+        if source_teams and len(drawn_teams) != len(source_teams):
+            raise ValueError(
+                f"ชีต {draw_name}: อ่านรายชื่อในสายได้ {len(drawn_teams)} ทีม "
+                f"แต่ชีต {sheet_name} มี {len(source_teams)} ทีม"
+            )
+        events.append({
+            "title": title, "raw_title": raw_title, "category": category,
+            "gender": gender, "age": age, "groups": groups, "teams": drawn_teams,
+            "source_sheet": sheet_name, "draw_sheet": draw_name,
+        })
+    if not events:
+        raise ValueError("ไม่พบชีตจับฉลาก (ต้องมีชีตชื่อขึ้นต้นด้วย Data และมีตาราง 'สายที่/รายชื่อทีม')")
+    return events
+
+
 def event_sort_key(ev):
     cat = ev.get("category") or "อื่นๆ"
     return (

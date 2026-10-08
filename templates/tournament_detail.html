@@ -46,7 +46,7 @@
             <select name="source_round_id"
                 style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px;">
                 {% for rv in round_views %}
-                <option value="{{ rv.round['id'] }}">{{ rv.round['round_name'] }} - {{
+                <option value="{{ rv.round['id'] }}" {% if loop.last %}selected{% endif %}>{{ rv.round['round_name'] }} - {{
                     competition_type_label(rv.round['round_type']) }}</option>
                 {% endfor %}
             </select>
@@ -55,6 +55,7 @@
         <div>
             <label style="display:block; font-weight:700; margin-bottom:6px;">รอบถัดไปเป็น</label>
             <select name="round_type" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px;">
+                <option value="auto">อัตโนมัติตามจำนวนทีม</option>
                 <option value="double_knockout">Double knockout</option>
                 <option value="knockout">Knockout</option>
             </select>
@@ -77,6 +78,14 @@
             <button type="submit" class="btn btn-primary system-btn" style="width:100%;">สร้างรอบต่อไป</button>
         </div>
     </form>
+</div>
+{% endif %}
+
+{% if final_result %}
+<div class="card" style="padding:22px;margin-top:18px;text-align:center;border:2px solid #16a34a;background:#f0fdf4;">
+    <div class="muted small">การแข่งขันเสร็จสิ้นในรอบที่ {{ final_result.round_no }}</div>
+    <h2 style="margin:8px 0;color:#166534;">ชนะเลิศ: {{ final_result.winner.team_name or final_result.winner.display_name }}</h2>
+    {% if final_result.second %}<div>รองชนะเลิศ: {{ final_result.second.team_name or final_result.second.display_name }}</div>{% endif %}
 </div>
 {% endif %}
 

@@ -1801,12 +1801,23 @@ def view_tournament(tournament_id):
     user = current_user()
     can_manage = can_manage_tournament(user, tournament)
     round_views = get_round_views(tournament_id)
+    final_result = None
+    if round_views:
+        latest = round_views[-1]
+        if len(latest["group_views"]) == 1 and latest["group_views"][0]["result"]["complete"]:
+            result = latest["group_views"][0]["result"]
+            final_result = {
+                "winner": result["winner"],
+                "second": result.get("second"),
+                "round_no": latest["round"]["round_no"],
+            }
     sync_version = get_tournament_sync_version(tournament_id)
     return render_template(
         "tournament_detail.html",
         tournament=tournament,
         round_views=round_views,
         can_manage=can_manage,
+        final_result=final_result,
         sync_version=sync_version,
     )
 
@@ -2372,9 +2383,9 @@ def create_next_round(tournament_id):
         flash("รอบต้นทางไม่ถูกต้อง", "error")
         return redirect(url_for("view_tournament", tournament_id=tournament_id))
 
-    target_round_type = request.form.get("round_type", "double_knockout").strip()
-    if target_round_type not in {"double_knockout", "knockout"}:
-        target_round_type = "double_knockout"
+    target_round_type = request.form.get("round_type", "auto").strip()
+    if target_round_type not in {"auto", "double_knockout", "knockout"}:
+        target_round_type = "auto"
 
     manual_group_count_raw = request.form.get("next_group_count", "").strip()
     try:
@@ -2394,6 +2405,21 @@ def create_next_round(tournament_id):
     if not source_view:
         flash("ไม่พบรอบต้นทาง", "error")
         return redirect(url_for("view_tournament", tournament_id=tournament_id))
+
+    existing_next = get_db().execute(
+        "SELECT id FROM tournament_rounds WHERE tournament_id = ? AND round_no = ?",
+        (tournament_id, source_view["round"]["round_no"] + 1),
+    ).fetchone()
+    if existing_next:
+        flash("รอบต้นทางนี้มีรอบถัดไปแล้ว กรุณาใช้รอบล่าสุด", "error")
+        return redirect(url_for("view_tournament", tournament_id=tournament_id) + f"#saved-round-{existing_next['id']}")
+
+    participant_count = len(build_source_participants(source_view))
+    if len(source_view["group_views"]) == 1 and all(g["result"]["complete"] for g in source_view["group_views"]):
+        flash("การแข่งขันจบแล้ว รอบนี้ได้ผู้ชนะเรียบร้อย", "success")
+        return redirect(url_for("view_tournament", tournament_id=tournament_id))
+    if target_round_type == "auto":
+        target_round_type = "knockout" if participant_count <= 2 else "double_knockout"
 
     sync_eliminated_for_round(tournament_id, source_view["round"]["round_no"], source_view)
     collect_eliminated_from_round(tournament_id, source_view)
@@ -2865,6 +2891,51 @@ def tournament_has_scores(tournament_id):
         (tournament_id,),
     ).fetchone()
     return (row["n"] or 0) > 0
+
+
+def _pairing_name_key(value):
+    value = bulk_events.abbreviate_org((value or "").strip()).translate(bulk_events.THAI_DIGITS)
+    return re.sub(r"[\s\.]+", "", value).lower()
+
+
+def match_imported_groups(tournament_id, imported_event):
+    """จับชื่อจากไฟล์กับทีมจริงและคงช่อง/สายตามไฟล์ทุกตำแหน่ง"""
+    teams = get_db().execute(
+        "SELECT display_name, full_name FROM tournament_teams WHERE tournament_id = ? ORDER BY id",
+        (tournament_id,),
+    ).fetchall()
+    lookup = defaultdict(list)
+    for team in teams:
+        for value in (team["display_name"], team["full_name"]):
+            key = _pairing_name_key(value)
+            if key and team["display_name"] not in lookup[key]:
+                lookup[key].append(team["display_name"])
+    used, resolved_groups, missing, ambiguous = set(), [], [], []
+    for group in imported_event["groups"]:
+        resolved = []
+        for source_name in group:
+            if source_name == "X":
+                resolved.append("X")
+                continue
+            candidates = [name for name in lookup.get(_pairing_name_key(source_name), []) if name not in used]
+            if len(candidates) == 1:
+                resolved.append(candidates[0])
+                used.add(candidates[0])
+            elif not candidates:
+                missing.append(source_name)
+            else:
+                ambiguous.append(source_name)
+        resolved_groups.append(resolved)
+    if missing or ambiguous or len(used) != len(teams):
+        details = []
+        if missing:
+            details.append("ไม่พบ: " + ", ".join(missing[:5]))
+        if ambiguous:
+            details.append("ชื่อซ้ำ: " + ", ".join(ambiguous[:5]))
+        if len(used) != len(teams):
+            details.append(f"จับคู่ได้ {len(used)}/{len(teams)} ทีม")
+        raise ValueError("; ".join(details))
+    return resolved_groups
 
 
 def tournament_mix_audit(tournament_id):
@@ -3376,6 +3447,89 @@ def redraw_batch(batch_id):
         flash("ข้าม (มีคะแนนหรือมีรอบถัดไปแล้ว): " + ", ".join(skipped), "error")
     if not done and not skipped:
         flash("กรุณาเลือกอย่างน้อย 1 ประเภท", "error")
+    return redirect(url_for("view_batch", batch_id=batch_id))
+
+
+@app.route("/batches/<int:batch_id>/import-pairings", methods=["POST"])
+@login_required
+def import_batch_pairings(batch_id):
+    """แทนรอบแรกด้วยผลจับฉลาก โดยตรวจอีเวนต์และรายชื่อครบก่อนแก้ฐานข้อมูล"""
+    user = current_user()
+    batch = get_batch_for_user(batch_id, user)
+    if not batch:
+        flash("ไม่พบชุดการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+    uploads = [f for f in request.files.getlist("pairing_files") if f and f.filename]
+    if not uploads:
+        flash("กรุณาเลือกไฟล์ผลจับฉลากอย่างน้อย 1 ไฟล์", "error")
+        return redirect(url_for("view_batch", batch_id=batch_id))
+
+    imported, errors = [], []
+    for upload in uploads:
+        try:
+            imported.extend(bulk_events.parse_draw_pairings(
+                bulk_events.read_workbook_rows(upload.read(), upload.filename)
+            ))
+        except Exception as exc:
+            errors.append(f"{upload.filename}: {exc}")
+
+    tournaments = batch_tournaments(batch_id)
+    tournament_map = {(t["event_category"], t["event_age"], t["event_gender"]): t for t in tournaments}
+    prepared, seen_keys = [], set()
+    for event in imported:
+        key = (event["category"], event["age"], event["gender"])
+        tournament = tournament_map.get(key)
+        if key in seen_keys:
+            errors.append(f"{event['title']}: พบประเภทซ้ำในไฟล์")
+            continue
+        seen_keys.add(key)
+        if not tournament:
+            errors.append(f"{event['title']}: ไม่พบอีเวนต์ที่ตรงกันในชุดนี้")
+            continue
+        if tournament["round_count"] > 1 or tournament_has_scores(tournament["id"]):
+            errors.append(f"{tournament['name']}: มีคะแนนหรือมีรอบถัดไปแล้ว จึงยังไม่แทนรอบแรก")
+            continue
+        try:
+            groups = match_imported_groups(tournament["id"], event)
+        except ValueError as exc:
+            errors.append(f"{tournament['name']}: {exc}")
+            continue
+        prepared.append((tournament, groups))
+
+    db = get_db()
+    updated = []
+    try:
+        for tournament, groups in prepared:
+            round_rows = db.execute(
+                "SELECT id FROM tournament_rounds WHERE tournament_id = ?", (tournament["id"],)
+            ).fetchall()
+            for row in round_rows:
+                db.execute("DELETE FROM manual_group_rankings WHERE round_id = ?", (row["id"],))
+                db.execute("DELETE FROM round_scores WHERE round_id = ?", (row["id"],))
+                db.execute("DELETE FROM round_slots WHERE round_id = ?", (row["id"],))
+            db.execute("DELETE FROM tournament_rounds WHERE tournament_id = ?", (tournament["id"],))
+            db.execute("DELETE FROM eliminated_teams WHERE tournament_id = ?", (tournament["id"],))
+            create_round(tournament["id"], 1, "รอบที่ 1", "double_knockout", groups)
+            real_sizes = [sum(name != "X" for name in group) for group in groups]
+            db.execute(
+                """UPDATE tournaments SET competition_type = 'double_knockout', qualify_per_group = 2,
+                   group_count = ?, group_sizes_json = ? WHERE id = ?""",
+                (len(groups), ",".join(map(str, real_sizes)), tournament["id"]),
+            )
+            updated.append(tournament)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    for tournament in updated:
+        emit_tournament_reload(tournament["id"], reason="import_pairings")
+    if updated:
+        flash(f"นำเข้าผลจับฉลากและแทนรอบแรกสำเร็จ {len(updated)} ประเภท", "success")
+    for error in errors:
+        flash(error, "error")
+    if not updated and not errors:
+        flash("ไม่พบผลจับฉลากที่นำเข้าได้", "error")
     return redirect(url_for("view_batch", batch_id=batch_id))
 
 
