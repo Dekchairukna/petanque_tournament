@@ -19,7 +19,7 @@
         <div class="title-box">
             <div class="title-main">ตารางแบ่งสายการแข่งขัน</div>
             <div class="title-sub">{{ tournament['name'] }}</div>
-            <div class="title-sub">{{ rv.round['round_name'] }} สาย {{ group.group_no }}</div>
+            <div class="title-sub">{{ rv.round['round_name'] }} สาย {{ group.group_label }}</div>
         </div>
 
         <div class="logo-box">
@@ -34,7 +34,7 @@
     <div class="meta-row">
         <div><strong>ประเภท:</strong> {{ competition_type_label(rv.round['round_type']) }}</div>
         <div><strong>รอบ:</strong> {{ rv.round['round_name'] }}</div>
-        <div><strong>สาย:</strong> {{ group.group_no }}</div>
+        <div><strong>สาย:</strong> {{ group.group_label }}</div>
     </div>
 
     <table class="bracket-table">

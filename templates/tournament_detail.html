@@ -141,12 +141,12 @@
             <div style="font-size:24px; font-weight:800;">{{ tournament['name'] }}</div>
             <div style="font-size:18px; margin-top:4px;">{{ rv.round['round_name'] }} - {{
                 competition_type_label(rv.round['round_type']) }}</div>
-            <div style="font-size:22px; font-weight:700; margin-top:6px;">สายที่ {{ group.group_no }}</div>
+            <div style="font-size:22px; font-weight:700; margin-top:6px;">สายที่ {{ group.group_label }}</div>
         </div>
 
         <div
             style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
-            <b style="font-size:28px;">สายที่ {{ group.group_no }}</b>
+            <b style="font-size:28px;">สายที่ {{ group.group_label }}</b>
             <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <a href="{{ url_for('group_score_sheet', round_id=rv.round['id'], group_no=group.group_no) }}" class="btn btn-secondary" target="_blank">พิมพ์สกอร์ชีทสายนี้</a>
                 {% if can_manage %}

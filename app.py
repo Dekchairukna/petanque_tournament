@@ -1186,6 +1186,7 @@ def get_round_views(tournament_id):
 
             group_views.append({
                 "group_no": group_no,
+                "group_label": group_label(group_no),
                 "slots": group_slots,
                 "result": res,
                 "stage_state": stage_state,
@@ -1435,6 +1436,7 @@ def build_score_sheet_matches(round_views, only_round_id=None, only_group_no=Non
         sheets.append({
             "round": rv["round"],
             "group_no": group["group_no"],
+            "group_label": group_label(group["group_no"]),
             "stage_no": stage_no,
             "stage_label": stage_label,
             "court_name": court_name or (a["court_name"] if a and a["court_name"] else (b["court_name"] if b and b["court_name"] else "")),
@@ -1496,6 +1498,7 @@ def inject_user():
     return {
         "current_user": current_user(),
         "competition_type_label": competition_type_label,
+        "group_label": group_label,
         "stage_can_edit": stage_is_editable,
     }
 
@@ -1991,7 +1994,7 @@ def group_score_sheet(round_id, group_no):
         "score_sheet_tournoi_style.html",
         tournament=tournament,
         sheets=sheets,
-        title_suffix=f"{round_row['round_name']} / สาย {group_no}",
+        title_suffix=f"{round_row['round_name']} / สาย {group_label(group_no)}",
     )
 
 
@@ -3020,7 +3023,7 @@ def build_export_event(tournament, rounds_mode="all"):
                 for s in (result.get("qualified") or [])
                 if s
             ]
-            groups.append({"group_no": gv["group_no"], "slots": slots_out, "qualified": qualified})
+            groups.append({"group_no": group_label(gv["group_no"]), "slots": slots_out, "qualified": qualified})
         rounds.append({"label": label, "round_type": rnd["round_type"], "groups": groups})
 
     # รายชื่อทีม + สาย/ลำดับจากรอบแรก
@@ -3030,7 +3033,7 @@ def build_export_event(tournament, rounds_mode="all"):
         for gv in all_views[0]["group_views"]:
             for slot in gv["slots"]:
                 if not slot.get("is_bye") and slot.get("team_name"):
-                    first_pos[slot["team_name"]] = (gv["group_no"], slot.get("display_slot_no"))
+                    first_pos[slot["team_name"]] = (group_label(gv["group_no"]), slot.get("display_slot_no"))
     teams = []
     for t in db.execute(
         "SELECT * FROM tournament_teams WHERE tournament_id = ? ORDER BY id", (tournament["id"],)

@@ -92,7 +92,7 @@
                             </td>
                             <td style="font-weight:700;">{{ row['team_name'] }}</td>
                             <td style="text-align:center;">
-                                {% if row['source_group_no'] %}สาย {{ row['source_group_no'] }}{% else %}-{% endif %}
+                                {% if row['source_group_no'] %}สาย {{ group_label(row['source_group_no']) }}{% else %}-{% endif %}
                             </td>
                             <td style="text-align:center;">
                                 {% if row['status'] == 'used' %}
