@@ -166,7 +166,19 @@
 <body>
   <div class="no-print">
     <a class="btn" href="javascript:window.print()">พิมพ์สกอร์ชีท</a>
-    <span>รูปแบบเดียวกับระบบ tournoi: 1 ใบมีช่องคะแนน 1-13 และช่องรวม</span>
+    {% if round_options %}
+    <form method="get" style="display:flex;gap:8px;align-items:center;margin:0;">
+      <label for="round-filter"><strong>เลือกรอบ:</strong></label>
+      <select id="round-filter" name="round" style="padding:8px 10px;border:1px solid #111;border-radius:8px;">
+        <option value="all" {% if selected_round == 'all' %}selected{% endif %}>ทั้งหมด</option>
+        {% for option in round_options %}
+        <option value="{{ option.id }}" {% if selected_round|string == option.id|string %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn" type="submit">แสดงรอบที่เลือก</button>
+    </form>
+    {% endif %}
+    <span>W = ผู้ชนะ · L = ผู้แพ้</span>
   </div>
 
   {% if not sheets %}

@@ -1473,23 +1473,43 @@ def build_score_sheet_matches(round_views, only_round_id=None, only_group_no=Non
                 add_sheet(rv, group, 2, "ผู้ชนะพบผู้ชนะ", qf1["winner"], qf2["winner"])
                 add_sheet(rv, group, 2, "ผู้แพ้พบผู้แพ้", qf1["loser"], qf2["loser"])
             else:
-                placeholder_a = {"is_bye": 0, "team_name": "ผู้ชนะคู่ที่ 1", "display_name": "ผู้ชนะคู่ที่ 1", "court_name": ""}
-                placeholder_b = {"is_bye": 0, "team_name": "ผู้ชนะคู่ที่ 2", "display_name": "ผู้ชนะคู่ที่ 2", "court_name": ""}
-                placeholder_c = {"is_bye": 0, "team_name": "ผู้แพ้คู่ที่ 1", "display_name": "ผู้แพ้คู่ที่ 1", "court_name": ""}
-                placeholder_d = {"is_bye": 0, "team_name": "ผู้แพ้คู่ที่ 2", "display_name": "ผู้แพ้คู่ที่ 2", "court_name": ""}
-                add_sheet(rv, group, 2, "ผู้ชนะพบผู้ชนะ", placeholder_a, placeholder_b)
-                add_sheet(rv, group, 2, "ผู้แพ้พบผู้แพ้", placeholder_c, placeholder_d)
+                placeholder_a = {"is_bye": 0, "team_name": "W1", "display_name": "W1", "court_name": ""}
+                placeholder_b = {"is_bye": 0, "team_name": "W2", "display_name": "W2", "court_name": ""}
+                placeholder_c = {"is_bye": 0, "team_name": "L1", "display_name": "L1", "court_name": ""}
+                placeholder_d = {"is_bye": 0, "team_name": "L2", "display_name": "L2", "court_name": ""}
+                add_sheet(rv, group, 2, "คู่ที่ 3 · W1 พบ W2", placeholder_a, placeholder_b)
+                add_sheet(rv, group, 2, "คู่ที่ 4 · L1 พบ L2", placeholder_c, placeholder_d)
 
             wf = decide_pair(qf1["winner"], qf2["winner"], 2, score_map) if qf1 and qf2 else None
             lf = decide_pair(qf1["loser"], qf2["loser"], 2, score_map) if qf1 and qf2 else None
             if wf and lf:
                 add_sheet(rv, group, 3, "ชิงอันดับ 2", wf["loser"], lf["winner"])
             else:
-                placeholder_e = {"is_bye": 0, "team_name": "ผู้แพ้ผู้ชนะพบผู้ชนะ", "display_name": "ผู้แพ้ผู้ชนะพบผู้ชนะ", "court_name": ""}
-                placeholder_f = {"is_bye": 0, "team_name": "ผู้ชนะผู้แพ้พบผู้แพ้", "display_name": "ผู้ชนะผู้แพ้พบผู้แพ้", "court_name": ""}
-                add_sheet(rv, group, 3, "ชิงอันดับ 2", placeholder_e, placeholder_f)
+                placeholder_e = {"is_bye": 0, "team_name": "L3", "display_name": "L3", "court_name": ""}
+                placeholder_f = {"is_bye": 0, "team_name": "W4", "display_name": "W4", "court_name": ""}
+                add_sheet(rv, group, 3, "คู่ที่ 5 · L3 พบ W4", placeholder_e, placeholder_f)
 
     return sheets
+
+
+def score_sheet_round_options(round_views):
+    """Return friendly print labels while keeping each saved round selectable."""
+    options = []
+    total = len(round_views)
+    for index, rv in enumerate(round_views):
+        round_no = int(rv["round"]["round_no"])
+        if total > 1 and index == total - 1:
+            label = "รอบชิงชนะเลิศ"
+        elif total > 2 and index == total - 2:
+            label = "รอบรองชนะเลิศ"
+        elif round_no == 1:
+            label = "รอบแรก"
+        elif round_no == 2:
+            label = "รอบสอง"
+        else:
+            label = rv["round"]["round_name"]
+        options.append({"id": int(rv["round"]["id"]), "label": label})
+    return options
 
 
 # ------------------------- template globals -------------------------
@@ -1924,11 +1944,25 @@ def tournament_score_sheets(tournament_id):
         return redirect(url_for("home"))
 
     round_views = get_round_views(tournament_id)
-    sheets = build_score_sheet_matches(round_views)
+    round_options = score_sheet_round_options(round_views)
+    selected_round = (request.args.get("round") or "all").strip()
+    selected_round_id = None
+    if selected_round != "all":
+        try:
+            candidate = int(selected_round)
+        except ValueError:
+            candidate = None
+        if candidate in {option["id"] for option in round_options}:
+            selected_round_id = candidate
+        else:
+            selected_round = "all"
+    sheets = build_score_sheet_matches(round_views, only_round_id=selected_round_id)
     return render_template(
         "score_sheet_tournoi_style.html",
         tournament=tournament,
         sheets=sheets,
+        round_options=round_options,
+        selected_round=selected_round,
         title_suffix="ทุกสกอร์ชีท",
     )
 
@@ -2442,6 +2476,47 @@ def create_next_round(tournament_id):
     emit_tournament_reload(tournament_id, reason='create_next_round')
     flash(f"สร้างรอบถัดไปสำเร็จ (รอบที่ {round_no})", "success")
     return redirect(url_for("view_tournament", tournament_id=tournament_id) + f"#saved-round-{round_id}")
+
+
+@app.route("/tournaments/<int:tournament_id>/plan-all-rounds", methods=["POST"])
+@login_required
+def plan_all_rounds(tournament_id):
+    tournament = get_tournament_for_user(tournament_id, current_user())
+    if not tournament:
+        flash("ไม่พบทัวร์นาเมนต์หรือคุณไม่มีสิทธิ์จัดการ", "error")
+        return redirect(url_for("dashboard"))
+
+    created = 0
+    try:
+        for _ in range(12):
+            round_views = get_round_views(tournament_id)
+            if not round_views:
+                break
+            latest = round_views[-1]
+            if latest["round"]["round_type"] == "knockout" and len(latest["group_views"]) == 1:
+                break
+
+            participant_count = len(build_source_participants(latest))
+            if participant_count <= 1:
+                break
+            target_type = "knockout" if participant_count <= 2 else "double_knockout"
+            create_next_round_from_round_view(
+                tournament=tournament,
+                round_view=latest,
+                target_round_type=target_type,
+                manual_group_count=None,
+                separate_same=True,
+            )
+            created += 1
+    except ValueError as exc:
+        flash(f"สร้างแผนได้บางส่วน: {exc}", "error")
+
+    if created:
+        emit_tournament_reload(tournament_id, reason="plan_all_rounds")
+        flash(f"สร้างแผนการแข่งขันล่วงหน้าถึงรอบชิงแล้ว ({created} รอบใหม่)", "success")
+    else:
+        flash("มีแผนการแข่งขันถึงรอบชิงอยู่แล้ว", "success")
+    return redirect(url_for("view_tournament", tournament_id=tournament_id))
 
 
 @app.route("/tournaments/<int:tournament_id>/eliminated")

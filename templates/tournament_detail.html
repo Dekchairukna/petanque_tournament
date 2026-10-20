@@ -44,6 +44,12 @@
         </div>
     </div>
 
+    <form method="post" action="{{ url_for('plan_all_rounds', tournament_id=tournament['id']) }}"
+        onsubmit="return confirm('สร้างแผนจับสลากรอบถัดไปทั้งหมดจนถึงรอบชิงด้วยตำแหน่งอ้างอิงล่วงหน้า?');"
+        style="margin-top:14px;">
+        <button type="submit" class="btn success" style="width:100%;">สร้างแผนทุกรอบจนจบ เพื่อพิมพ์สกอร์ชีทล่วงหน้า</button>
+    </form>
+
     <form method="post" action="{{ url_for('create_next_round', tournament_id=tournament['id']) }}"
         style="margin-top:16px; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; align-items:end;">
         <div>
