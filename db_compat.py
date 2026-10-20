@@ -32,6 +32,11 @@ class PostgresConnection:
         from psycopg2.extras import RealDictCursor
 
         self._conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
+        cur = self._conn.cursor()
+        cur.execute("CREATE SCHEMA IF NOT EXISTS petanque_tournament")
+        cur.execute("SET search_path TO petanque_tournament")
+        cur.close()
+        self._conn.commit()
 
     def execute(self, sql, params=()):
         is_ignore = bool(re.search(r"\bINSERT\s+OR\s+IGNORE\s+INTO\b", sql, flags=re.I))
@@ -98,7 +103,7 @@ def migrate_sqlite_data(sqlite_path, target):
                 continue
             pg_columns = {
                 row["column_name"] for row in target.execute(
-                    "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=?",
+                    "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=?",
                     (table,),
                 ).fetchall()
             }

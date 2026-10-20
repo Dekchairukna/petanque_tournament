@@ -35,7 +35,7 @@ socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 def table_exists(db, table_name):
     if isinstance(db, PostgresConnection):
         row = db.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?",
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ?",
             (table_name,),
         ).fetchone()
         return row is not None
@@ -49,7 +49,7 @@ def table_exists(db, table_name):
 def table_columns(db, table_name):
     if isinstance(db, PostgresConnection):
         rows = db.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ?",
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?",
             (table_name,),
         ).fetchall()
         return {row["column_name"] for row in rows}
