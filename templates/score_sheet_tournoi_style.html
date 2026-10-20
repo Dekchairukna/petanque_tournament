@@ -189,7 +189,7 @@
   <div class="score-sheet {% if loop.index % 4 == 0 %}page-break-after{% endif %}">
     <div class="header">
       <div class="event-info">
-        <div class="event-name">{{ tournament['name'] }}</div>
+        <div class="event-name">{{ sheet.tournament_name or tournament['name'] }}</div>
         <div class="event-details">
           รอบ: {{ sheet.round['round_name'] }} &nbsp;&nbsp;
           ระบบ: {{ competition_type_label(sheet.round['round_type']) }} &nbsp;&nbsp;

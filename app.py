@@ -3430,6 +3430,46 @@ def export_batch(batch_id):
     return excel_response(tournaments, batch["subtitle"], batch=batch, rounds_mode=rounds_mode, filename=filename)
 
 
+@app.route("/batches/<int:batch_id>/score-sheets")
+@login_required
+def batch_score_sheets(batch_id):
+    user = current_user()
+    batch = get_batch_for_user(batch_id, user)
+    if not batch:
+        flash("ไม่พบชุดการแข่งขัน", "error")
+        return redirect(url_for("dashboard"))
+
+    selected_ids = set(_selected_ids())
+    tournaments = [t for t in batch_tournaments(batch_id) if t["id"] in selected_ids]
+    if not tournaments:
+        flash("กรุณาเลือกอย่างน้อย 1 ประเภทเพื่อพิมพ์สกอร์ชีท", "error")
+        return redirect(url_for("view_batch", batch_id=batch_id))
+
+    rounds_mode = request.args.get("rounds", "all")
+    if rounds_mode not in {"all", "first", "latest"}:
+        rounds_mode = "all"
+    sheets = []
+    for tournament in tournaments:
+        round_views = get_round_views(tournament["id"])
+        if rounds_mode == "first":
+            round_views = round_views[:1]
+        elif rounds_mode == "latest":
+            round_views = round_views[-1:]
+        tournament_sheets = build_score_sheet_matches(round_views)
+        for sheet in tournament_sheets:
+            sheet["tournament_name"] = tournament["name"]
+        sheets.extend(tournament_sheets)
+
+    return render_template(
+        "score_sheet_tournoi_style.html",
+        tournament={"name": batch["name"]},
+        sheets=sheets,
+        round_options=None,
+        selected_round="all",
+        title_suffix=f"สกอร์ชีทรวม {len(tournaments)} ประเภท",
+    )
+
+
 @app.route("/tournaments/<int:tournament_id>/export-excel")
 def export_tournament_excel(tournament_id):
     db = get_db()

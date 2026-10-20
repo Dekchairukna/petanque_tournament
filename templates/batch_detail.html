@@ -55,6 +55,8 @@
             </select>
         </div>
         <button type="submit" class="btn success sel-btn">ดาวน์โหลด Excel ที่เลือก</button>
+        <button type="submit" class="btn secondary sel-btn"
+                formaction="{{ url_for('batch_score_sheets', batch_id=batch['id']) }}" formtarget="_blank">พิมพ์สกอร์ชีทรวมที่เลือก</button>
         <span style="flex:1"></span>
         <div class="grp">
             <span class="small muted">จับสลากใหม่แบบ</span>
@@ -125,7 +127,7 @@
 
 <div class="card">
     <details>
-        <summary style="cursor:pointer; font-weight:700;">ตั้งค่าหัวกระดาษ / โลโก้ของไฟล์ Excel</summary>
+        <summary style="cursor:pointer; font-weight:700;">ตั้งค่าหัวกระดาษ / โลโก้ของใบแบ่งสายและไฟล์ Excel</summary>
         <form method="post" action="{{ url_for('update_batch', batch_id=batch['id']) }}" enctype="multipart/form-data" class="grid-2" style="margin-top:14px;">
             <div>
                 <label style="font-weight:700;">ชื่อชุดการแข่งขัน</label>
