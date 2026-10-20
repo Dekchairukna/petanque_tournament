@@ -1485,9 +1485,9 @@ def build_score_sheet_matches(round_views, only_round_id=None, only_group_no=Non
             if wf and lf:
                 add_sheet(rv, group, 3, "ชิงอันดับ 2", wf["loser"], lf["winner"])
             else:
-                placeholder_e = {"is_bye": 0, "team_name": "L3", "display_name": "L3", "court_name": ""}
-                placeholder_f = {"is_bye": 0, "team_name": "W4", "display_name": "W4", "court_name": ""}
-                add_sheet(rv, group, 3, "คู่ที่ 5 · L3 พบ W4", placeholder_e, placeholder_f)
+                placeholder_e = {"is_bye": 0, "team_name": "WL", "display_name": "WL", "court_name": ""}
+                placeholder_f = {"is_bye": 0, "team_name": "LW", "display_name": "LW", "court_name": ""}
+                add_sheet(rv, group, 3, "WL พบ LW", placeholder_e, placeholder_f)
 
     return sheets
 
