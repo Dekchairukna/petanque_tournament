@@ -3,41 +3,71 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#2563eb">
   <title>{% block title %}Tournament{% endblock %}</title>
   <style>
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f6fb;margin:0;color:#1f2937}
-    .nav{background:#111827;color:#fff;padding:14px 18px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-    .nav a{color:#fff;text-decoration:none;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.08)}
+    :root{--blue:#2563eb;--blue-dark:#1d4ed8;--sky:#60a5fa;--ink:#0f172a;--muted:#64748b;--line:#dbe3ef;--surface:#fff;--bg:#f4f8ff;--green:#059669;--red:#dc2626}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(180deg,#eef6ff 0,#f8fbff 260px,#f4f7fb 100%);margin:0;color:var(--ink);min-height:100vh}
+    a{color:inherit}
+    .nav{position:sticky;top:0;z-index:1000;background:linear-gradient(135deg,var(--blue-dark),var(--sky));color:#fff;padding:10px clamp(14px,3vw,34px);display:flex;gap:8px;align-items:center;flex-wrap:wrap;box-shadow:0 6px 24px rgba(30,64,175,.22)}
+    .nav-brand{display:flex!important;align-items:center;gap:10px;margin-right:8px;background:transparent!important;padding-left:0!important;font-size:17px;font-weight:900}
+    .brand-badge{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.3);box-shadow:0 7px 16px rgba(15,23,42,.14);font-size:20px}
+    .nav a{color:#fff;text-decoration:none;padding:9px 12px;border-radius:11px;background:transparent;font-weight:750;font-size:14px;transition:background .18s ease,transform .18s ease}
+    .nav a:hover{background:rgba(255,255,255,.18);transform:translateY(-1px)}
+    .nav a.primary-link{background:#fff;color:var(--blue-dark);box-shadow:0 5px 14px rgba(15,23,42,.12)}
+    .nav a.logout-link{background:#fee2e2;color:#b91c1c}
     .nav .spacer{flex:1}
-    .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
-    .card{background:#fff;border-radius:18px;padding:20px;box-shadow:0 6px 20px rgba(0,0,0,.06);margin-bottom:18px}
-    .muted{color:#6b7280}.badge{display:inline-block;border-radius:999px;padding:6px 12px;background:#e5edff;color:#1d4ed8}
-    .btn{display:inline-block;border:0;border-radius:12px;padding:10px 14px;background:#2563eb;color:#fff;text-decoration:none;cursor:pointer}
-    .btn.success{background:#059669}.btn.danger{background:#dc2626}.btn.secondary{background:#4b5563}
-    input,textarea,select{width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;box-sizing:border-box}
-    textarea{min-height:160px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #e5e7eb;padding:8px;vertical-align:top}
-    th{background:#f8fafc}.flash{padding:12px 14px;border-radius:12px;margin-bottom:12px}.flash.success{background:#dcfce7;color:#166534}.flash.error{background:#fee2e2;color:#991b1b}
-    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.actions{display:flex;gap:8px;flex-wrap:wrap}.small{font-size:13px}
-    @media(max-width:800px){.grid-2{grid-template-columns:1fr}}
+    .user-pill{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border-radius:999px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.25);font-size:13px;font-weight:800;white-space:nowrap}
+    .wrap{max-width:1320px;margin:0 auto;padding:26px clamp(14px,3vw,28px) 48px}
+    .card{background:rgba(255,255,255,.96);border:1px solid rgba(203,213,225,.75);border-radius:20px;padding:22px;box-shadow:0 10px 30px rgba(15,23,42,.07);margin-bottom:20px}
+    .card h1,.card h2,.section-title{letter-spacing:-.025em}
+    .page-grid{display:grid;gap:2px}
+    .muted,.muted-text{color:var(--muted)}
+    .badge{display:inline-flex;align-items:center;border-radius:999px;padding:7px 13px;background:#dbeafe;color:var(--blue-dark);font-weight:800}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid transparent;border-radius:11px;padding:10px 15px;background:linear-gradient(135deg,var(--blue-dark),var(--blue));color:#fff!important;text-decoration:none;cursor:pointer;font:inherit;font-weight:800;line-height:1.2;box-shadow:0 5px 12px rgba(37,99,235,.16);transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
+    .btn:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(37,99,235,.22);filter:brightness(1.03)}
+    .btn:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+    .btn.success{background:linear-gradient(135deg,#047857,var(--green));box-shadow:0 5px 12px rgba(5,150,105,.16)}
+    .btn.danger,.btn-danger{background:linear-gradient(135deg,#b91c1c,var(--red));box-shadow:0 5px 12px rgba(220,38,38,.16)}
+    .btn.secondary,.btn-secondary{background:#eef2f7;color:#334155!important;border-color:#d6deea;box-shadow:none}
+    .btn-primary{background:linear-gradient(135deg,var(--blue-dark),var(--blue))}
+    input,textarea,select{width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:11px;box-sizing:border-box;background:#fff;color:var(--ink);font:inherit;transition:border .15s ease,box-shadow .15s ease}
+    input:focus,textarea:focus,select:focus{outline:0;border-color:var(--sky);box-shadow:0 0 0 4px rgba(96,165,250,.2)}
+    input[type=checkbox],input[type=radio]{accent-color:var(--blue);width:auto}
+    textarea{min-height:160px}
+    table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    th,td{border:0;border-bottom:1px solid #e8edf4;padding:11px;vertical-align:top}
+    th{background:#eef5ff;color:#1e3a8a;font-size:13px;font-weight:900;text-transform:none}
+    tbody tr:last-child td{border-bottom:0}
+    tbody tr:hover{background:#f8fbff}
+    .flash{padding:13px 15px;border-radius:13px;margin-bottom:13px;font-weight:750;border:1px solid transparent;box-shadow:0 5px 16px rgba(15,23,42,.05)}
+    .flash.success{background:#dcfce7;color:#166534;border-color:#bbf7d0}.flash.error{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.actions{display:flex;gap:8px;flex-wrap:wrap}.small{font-size:13px}.empty-state{padding:36px;text-align:center;color:var(--muted);background:#f8fafc;border:1px dashed #cbd5e1;border-radius:14px}
+    details{border-radius:14px}summary{color:#1e3a8a}
+    @media(max-width:900px){.nav{position:relative}.nav-brand{width:100%;margin-bottom:3px}.nav .spacer{display:none}.nav a:not(.nav-brand){font-size:13px;padding:8px 9px}.user-pill{margin-left:auto}.wrap{padding-top:18px}.card{padding:17px;border-radius:16px}.grid-2{grid-template-columns:1fr}.btn{min-height:42px}table{min-width:720px}}
+    @media print{.nav,.no-print{display:none!important}body{background:#fff}.wrap{max-width:none;padding:0}.card{box-shadow:none;border:0}}
   </style>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
   <div class="nav">
+    <a class="nav-brand" href="{{ url_for('home') }}"><span class="brand-badge">◉</span><span>Petanque Tournament</span></a>
     <a href="{{ url_for('home') }}">รายการแข่งขันทั้งหมด</a>
     {% if current_user %}
       <a href="{{ url_for('dashboard') }}">แดชบอร์ด</a>
-      <a href="{{ url_for('create_tournament') }}">สร้างทัวร์นาเมนต์</a>
-      <a href="{{ url_for('import_events') }}">นำเข้าจาก Excel (หลายประเภท)</a>
+      <a class="primary-link" href="{{ url_for('create_tournament') }}">สร้างทัวร์นาเมนต์</a>
+      <a href="{{ url_for('import_events') }}">นำเข้าจาก Excel</a>
       {% if current_user['role'] == 'super_admin' %}
       <a href="{{ url_for('manage_users') }}">จัดการผู้ใช้</a>
       {% endif %}
       <span class="spacer"></span>
-      <span>ผู้ใช้: {{ current_user['username'] }}</span>
-      <a href="{{ url_for('logout') }}">ออกจากระบบ</a>
+      <span class="user-pill">ผู้ใช้: {{ current_user['username'] }}</span>
+      <a class="logout-link" href="{{ url_for('logout') }}">ออกจากระบบ</a>
     {% else %}
       <span class="spacer"></span>
-      <a href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+      <a class="primary-link" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
     {% endif %}
   </div>
   <div class="wrap">
