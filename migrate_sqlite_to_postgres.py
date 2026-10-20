@@ -41,11 +41,13 @@ def migrate(sqlite_path, postgres_url):
                 continue
             placeholders = ",".join("?" for _ in columns)
             column_sql = ",".join(columns)
+            updates = ",".join(f"{name}=EXCLUDED.{name}" for name in columns if name != "id")
+            conflict = f"DO UPDATE SET {updates}" if updates else "DO NOTHING"
             rows = source.execute(f"SELECT {column_sql} FROM {table} ORDER BY id").fetchall()
             for row in rows:
                 values = tuple(row[name] for name in columns)
                 target.execute(
-                    f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders}) ON CONFLICT (id) DO NOTHING",
+                    f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders}) ON CONFLICT (id) {conflict}",
                     values,
                 )
             target.commit()

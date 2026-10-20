@@ -179,7 +179,7 @@ def get_db():
     if "db" not in g:
         if DATABASE_URL:
             g.db = PostgresConnection(DATABASE_URL)
-            if not table_exists(g.db, "users"):
+            if not table_exists(g.db, "tournament_rounds"):
                 init_db(g.db)
                 migrate_sqlite_data(DATABASE, g.db)
             else:
