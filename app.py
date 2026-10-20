@@ -12,11 +12,19 @@ from functools import wraps
 from flask import Flask, flash, g, redirect, render_template, request, send_file, session, url_for
 
 import bulk_events
+from db_compat import PostgresConnection, migrate_sqlite_data
 from flask_socketio import SocketIO, emit, join_room
 from werkzeug.security import check_password_hash, generate_password_hash
 
+try:
+    import psycopg2
+    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, psycopg2.IntegrityError)
+except ImportError:
+    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "tournament.db"))
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 app = Flask(__name__)
 app.secret_key = "change-this-secret-key"
@@ -25,11 +33,27 @@ socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
 # ------------------------- database -------------------------
 def table_exists(db, table_name):
+    if isinstance(db, PostgresConnection):
+        row = db.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?",
+            (table_name,),
+        ).fetchone()
+        return row is not None
     row = db.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
         (table_name,),
     ).fetchone()
     return row is not None
+
+
+def table_columns(db, table_name):
+    if isinstance(db, PostgresConnection):
+        rows = db.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ?",
+            (table_name,),
+        ).fetchall()
+        return {row["column_name"] for row in rows}
+    return {row[1] for row in db.execute(f"PRAGMA table_info({table_name})").fetchall()}
 
 
 def ensure_runtime_schema(db):
@@ -53,7 +77,7 @@ def ensure_runtime_schema(db):
     # เพิ่มคอลัมน์คลังทีมตกรอบแบบย้อนหลังได้
     # source_tournament_id = อีเว้นต้นทางจริง, source_round_no = ตกรอบที่เท่าไหร่
     if table_exists(db, "team_pool"):
-        cols = {row[1] for row in db.execute("PRAGMA table_info(team_pool)").fetchall()}
+        cols = table_columns(db, "team_pool")
         changed = False
         if "source_tournament_id" not in cols:
             db.execute("ALTER TABLE team_pool ADD COLUMN source_tournament_id INTEGER")
@@ -130,7 +154,7 @@ def ensure_bulk_schema(db):
     )
     changed = False
     if table_exists(db, "tournaments"):
-        cols = {row[1] for row in db.execute("PRAGMA table_info(tournaments)").fetchall()}
+        cols = table_columns(db, "tournaments")
         for col, ddl in (
             ("batch_id", "INTEGER"),
             ("event_label", "TEXT"),
@@ -143,7 +167,7 @@ def ensure_bulk_schema(db):
                 db.execute(f"ALTER TABLE tournaments ADD COLUMN {col} {ddl}")
                 changed = True
     if table_exists(db, "tournament_teams"):
-        cols = {row[1] for row in db.execute("PRAGMA table_info(tournament_teams)").fetchall()}
+        cols = table_columns(db, "tournament_teams")
         for col in ("full_name", "district", "province"):
             if col not in cols:
                 db.execute(f"ALTER TABLE tournament_teams ADD COLUMN {col} TEXT")
@@ -153,9 +177,17 @@ def ensure_bulk_schema(db):
 
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DATABASE)
-        g.db.row_factory = sqlite3.Row
-        ensure_runtime_schema(g.db)
+        if DATABASE_URL:
+            g.db = PostgresConnection(DATABASE_URL)
+            if not table_exists(g.db, "users"):
+                init_db(g.db)
+                migrate_sqlite_data(DATABASE, g.db)
+            else:
+                ensure_runtime_schema(g.db)
+        else:
+            g.db = sqlite3.connect(DATABASE)
+            g.db.row_factory = sqlite3.Row
+            ensure_runtime_schema(g.db)
     return g.db
 
 
@@ -183,8 +215,8 @@ def parse_expiry(value):
         return None
 
 
-def init_db():
-    db = get_db()
+def init_db(db=None):
+    db = db or get_db()
     db.executescript(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -1650,7 +1682,7 @@ def manage_users():
                 db.commit()
                 flash("สร้างผู้ใช้สำเร็จ", "success")
                 return redirect(url_for("manage_users"))
-            except sqlite3.IntegrityError:
+            except DB_INTEGRITY_ERRORS:
                 flash("ชื่อผู้ใช้นี้ถูกใช้แล้ว", "error")
 
     users = db.execute(
