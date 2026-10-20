@@ -23,11 +23,16 @@ TABLES = [
 ]
 
 
-def migrate(sqlite_path, postgres_url):
+def migrate(sqlite_path, postgres_url, replace=False):
     source = sqlite3.connect(sqlite_path)
     source.row_factory = sqlite3.Row
     target = PostgresConnection(postgres_url)
     try:
+        if replace:
+            target.execute("DROP SCHEMA petanque_tournament CASCADE")
+            target.commit()
+            target.close()
+            target = PostgresConnection(postgres_url)
         init_db(target)
         for table in TABLES:
             source_exists = source.execute(
@@ -71,7 +76,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--sqlite", default=os.path.join(os.path.dirname(__file__), "tournament.db"))
     parser.add_argument("--postgres-url", default=os.environ.get("DATABASE_URL"))
+    parser.add_argument("--replace", action="store_true", help="Replace only the petanque_tournament schema")
     args = parser.parse_args()
     if not args.postgres_url:
         raise SystemExit("DATABASE_URL or --postgres-url is required")
-    migrate(args.sqlite, args.postgres_url)
+    migrate(args.sqlite, args.postgres_url, replace=args.replace)
