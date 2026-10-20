@@ -35,10 +35,16 @@
         <h2 class="section-title" style="margin-top:0;">ชุดการแข่งขัน (สร้างจาก Excel)</h2>
         <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px;">
             {% for b in batches %}
-            <a href="{{ url_for('view_batch', batch_id=b.id) }}" style="text-decoration:none; color:inherit; border:1px solid #e5e7eb; border-radius:14px; padding:14px; display:block;">
-                <strong>{{ b.name }}</strong>
-                <div class="muted small">{{ b.event_count }} ประเภท · {{ b.created_at[:10] }}</div>
-            </a>
+            <div style="border:1px solid #e5e7eb; border-radius:14px; padding:14px; display:flex; gap:12px; align-items:center; justify-content:space-between;">
+                <a href="{{ url_for('view_batch', batch_id=b.id) }}" style="text-decoration:none; color:inherit; flex:1; min-width:0;">
+                    <strong>{{ b.name }}</strong>
+                    <div class="muted small">{{ b.event_count }} ประเภท · {{ b.created_at[:10] }}</div>
+                </a>
+                <form method="post" action="{{ url_for('delete_batch', batch_id=b.id) }}"
+                      onsubmit="return confirm('ยืนยันลบชุดการแข่งขัน {{ b.name|e }} และทัวร์นาเมนต์ทั้งหมด {{ b.event_count }} ประเภท? ข้อมูลคะแนนทั้งหมดจะถูกลบถาวร');">
+                    <button type="submit" class="btn danger">ลบทั้งชุด</button>
+                </form>
+            </div>
             {% endfor %}
         </div>
     </div>
@@ -79,7 +85,7 @@
                             <div style="display:flex; gap:8px; flex-wrap:wrap;">
                                 <a class="btn btn-primary" href="{{ url_for('view_tournament', tournament_id=t.id) }}">เปิด</a>
                                 <form method="post" action="{{ url_for('delete_tournament', tournament_id=t.id) }}" onsubmit="return confirm('ยืนยันการลบทัวร์นาเมนต์นี้?');">
-                                    <button type="submit" class="btn btn-danger">ลบ</button>
+                                    <button type="submit" class="btn danger">ลบ</button>
                                 </form>
                             </div>
                         </td>

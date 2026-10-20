@@ -21,7 +21,13 @@
             <div class="muted">{{ batch['subtitle'] or '' }}</div>
             <div class="muted small" style="margin-top:6px;">{{ tournaments|length }} ประเภท · {{ tournaments|sum(attribute='team_count') }} ทีม</div>
         </div>
-        <a class="btn success" href="{{ url_for('export_batch', batch_id=batch['id'], rounds='all') }}">ดาวน์โหลด Excel ทั้งหมด</a>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn success" href="{{ url_for('export_batch', batch_id=batch['id'], rounds='all') }}">ดาวน์โหลด Excel ทั้งหมด</a>
+            <form method="post" action="{{ url_for('delete_batch', batch_id=batch['id']) }}"
+                  onsubmit="return confirm('ยืนยันลบชุดการแข่งขันนี้และทัวร์นาเมนต์ทั้งหมด {{ tournaments|length }} ประเภท? ข้อมูลคะแนนทั้งหมดจะถูกลบถาวร');">
+                <button type="submit" class="btn danger">ลบชุดการแข่งขัน</button>
+            </form>
+        </div>
     </div>
 </div>
 

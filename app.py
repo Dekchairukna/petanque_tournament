@@ -2769,6 +2769,7 @@ def delete_tournament(tournament_id):
         return redirect(url_for("dashboard"))
 
     db = get_db()
+    batch_id = tournament["batch_id"]
     if table_exists(db, "manual_group_rankings"):
         db.execute("DELETE FROM manual_group_rankings WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
     db.execute("DELETE FROM round_scores WHERE round_id IN (SELECT id FROM tournament_rounds WHERE tournament_id = ?)", (tournament_id,))
@@ -2782,6 +2783,8 @@ def delete_tournament(tournament_id):
     emit_tournament_reload(tournament_id, reason='delete_tournament')
 
     flash("ลบทัวร์นาเมนต์แล้ว", "success")
+    if batch_id and get_batch_for_user(batch_id, current_user()):
+        return redirect(url_for("view_batch", batch_id=batch_id))
     return redirect(url_for("dashboard"))
 
 
@@ -3546,6 +3549,28 @@ def delete_tournament_data(db, tournament_id):
     db.execute("DELETE FROM team_pool WHERE tournament_id = ?", (tournament_id,))
     db.execute("DELETE FROM tournament_teams WHERE tournament_id = ?", (tournament_id,))
     db.execute("DELETE FROM tournaments WHERE id = ?", (tournament_id,))
+
+
+@app.route("/batches/<int:batch_id>/delete", methods=["POST"])
+@login_required
+def delete_batch(batch_id):
+    user = current_user()
+    batch = get_batch_for_user(batch_id, user)
+    if not batch:
+        flash("ไม่พบชุดการแข่งขันหรือคุณไม่มีสิทธิ์ลบ", "error")
+        return redirect(url_for("dashboard"))
+
+    db = get_db()
+    tournament_ids = [row["id"] for row in batch_tournaments(batch_id)]
+    for tournament_id in tournament_ids:
+        delete_tournament_data(db, tournament_id)
+    db.execute("DELETE FROM tournament_batches WHERE id = ?", (batch_id,))
+    db.commit()
+
+    for tournament_id in tournament_ids:
+        emit_tournament_reload(tournament_id, reason="delete_tournament")
+    flash(f"ลบชุดการแข่งขัน {batch['name']} แล้ว ({len(tournament_ids)} ประเภท)", "success")
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/batches/<int:batch_id>/delete-selected", methods=["POST"])

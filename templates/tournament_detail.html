@@ -36,6 +36,11 @@
             <a href="{{ url_for('view_batch', batch_id=tournament['batch_id']) }}"
                 class="btn action-btn btn-pool">กลับไปชุดการแข่งขัน</a>
             {% endif %}
+            <form method="post" action="{{ url_for('delete_tournament', tournament_id=tournament['id']) }}"
+                onsubmit="return confirm('ยืนยันลบทัวร์นาเมนต์นี้? ข้อมูลสาย ผลการแข่งขัน และคะแนนทั้งหมดจะถูกลบถาวร');"
+                style="display:inline;">
+                <button type="submit" class="btn action-btn danger">ลบทัวร์นาเมนต์</button>
+            </form>
         </div>
     </div>
 
