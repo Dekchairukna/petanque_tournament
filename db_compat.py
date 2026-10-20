@@ -49,7 +49,11 @@ class PostgresConnection:
         cur = self._conn.cursor()
         cur.execute(sql, params)
         lastrowid = None
-        if re.match(r"^\s*INSERT\s+INTO\b", sql, flags=re.I) and not is_ignore:
+        if (
+            re.match(r"^\s*INSERT\s+INTO\b", sql, flags=re.I)
+            and not is_ignore
+            and "ON CONFLICT" not in sql.upper()
+        ):
             probe = self._conn.cursor()
             try:
                 probe.execute("SELECT LASTVAL() AS id")
