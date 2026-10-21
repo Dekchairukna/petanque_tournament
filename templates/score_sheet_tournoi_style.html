@@ -8,7 +8,7 @@
     @page { size: A4 portrait; margin: 5mm; }
     * { box-sizing: border-box; }
     :root { --purple:#392060; --gold:#f4bf16; --pale:#f7f3fb; --grid:#c9bdd8; }
-    body { margin:0; color:var(--purple); background:#fff; font-family:Tahoma,"Noto Sans Thai",Arial,sans-serif; font-size:8.2pt; }
+    body { margin:0; color:var(--purple); background:#fff; font-family:Tahoma,"Noto Sans Thai",Arial,sans-serif; font-size:9pt; }
     .toolbar { margin:12px auto; max-width:1100px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:#111; }
     .btn { border:1px solid #ddd; border-radius:9px; padding:8px 14px; color:#fff; background:var(--purple); font-weight:700; text-decoration:none; cursor:pointer; }
     .toolbar select { padding:8px; border:1px solid #bbb; border-radius:8px; }
@@ -23,22 +23,24 @@
     .title-main { font-size:13.5pt; font-weight:800; white-space:nowrap; }
     .title-sub { margin-top:.5mm; font-size:8.5pt; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .event-name { color:#9a6b00; }
-    .meta { background:var(--pale); padding:.7mm 2.2mm .8mm; font-weight:700; line-height:1.55; border-bottom:1px solid var(--grid); }
+    .meta { background:var(--pale); padding:.7mm 2.2mm .8mm; font-size:8.6pt; font-weight:700; line-height:1.55; border-bottom:1px solid var(--grid); }
     .meta-line { display:grid; align-items:center; column-gap:2mm; white-space:nowrap; }
     .meta-line.one { grid-template-columns:1.15fr 1fr 1fr; }
     .meta-line.two { grid-template-columns:.78fr 1.75fr; }
     .meta-line.three { grid-template-columns:.8fr .9fr 1.15fr 1fr 1fr; }
-    .check { display:inline-block; width:2.3mm; height:2.3mm; border:1px solid currentColor; margin:0 .6mm 0 1.1mm; vertical-align:-.25mm; position:relative; }
-    .check.on:after { content:"✓"; position:absolute; left:.15mm; top:-1.25mm; font-size:7pt; font-weight:900; }
-    .fill { display:inline-block; min-width:12mm; border-bottom:1px dotted var(--purple); text-align:center; height:3mm; overflow:hidden; vertical-align:-.7mm; }
+    .choice { display:inline-flex; align-items:center; min-height:3.7mm; padding:0 .65mm; border-radius:1mm; }
+    .choice.on { background:var(--gold); color:#281447; box-shadow:inset 0 0 0 .3mm rgba(57,32,96,.18); }
+    .check { display:inline-block; width:2.45mm; height:2.45mm; border:1px solid currentColor; margin:0 .5mm 0 0; vertical-align:-.25mm; position:relative; background:#fff; }
+    .check.on:after { content:"✓"; position:absolute; left:.12mm; top:-1.2mm; font-size:7.4pt; font-weight:900; }
+    .fill { display:inline-flex; align-items:center; justify-content:center; min-width:13mm; height:4mm; padding:0 1mm; border-bottom:1px dotted var(--purple); line-height:4mm; white-space:nowrap; overflow:visible; vertical-align:-.35mm; }
     table { width:100%; border-collapse:collapse; table-layout:fixed; }
     th, td { border:.65px solid var(--grid); height:5.3mm; text-align:center; padding:0; }
-    th { background:var(--purple); color:#fff; height:5.1mm; font-size:8pt; }
+    th { background:var(--purple); color:#fff; height:5.1mm; font-size:8.6pt; }
     th.team-head { width:47mm; }
     th.total-head { width:16mm; background:var(--gold); color:var(--purple); }
-    td.team-cell { text-align:left; padding:0 1.5mm; color:#111; font-size:7.5pt; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    td.team-cell { text-align:left; padding:0 1.5mm; color:#111; font-size:8.2pt; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     td.total-cell { background:#fff5ca; border-color:var(--gold); }
-    .write-area { margin-top:2.2mm; padding:0 3.5mm .8mm; font-size:7pt; line-height:1.35; }
+    .write-area { margin-top:2.2mm; padding:0 3.5mm .8mm; font-size:7.7pt; line-height:1.35; }
     .result-signatures { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5mm; margin-bottom:1.1mm; }
     .write-line { display:flex; align-items:flex-end; white-space:nowrap; }
     .dots { flex:1; min-width:8mm; height:3mm; margin-left:1mm; border-bottom:1px dotted var(--purple); }
@@ -94,16 +96,16 @@
 
       <div class="meta">
         <div class="meta-line one">
-          <span>ระดับ <i class="check {{ 'on' if level_primary }}"></i>ประถม <i class="check {{ 'on' if level_lower }}"></i>ม.ต้น <i class="check {{ 'on' if level_upper }}"></i>ม.ปลาย{% if sheet.event_age %} รุ่น {{ sheet.event_age }} ปี{% endif %}</span>
-          <span>ประเภท <i class="check {{ 'on' if gender == 'ชาย' }}"></i>ชาย <i class="check {{ 'on' if gender == 'หญิง' }}"></i>หญิง <i class="check {{ 'on' if gender == 'ผสม' }}"></i>ผสม</span>
-          <span>อีเวนท์ <i class="check {{ 'on' if category == 'เดี่ยว' }}"></i>เดี่ยว <i class="check {{ 'on' if category in ['คู่','คู่ผสม'] }}"></i>คู่ <i class="check {{ 'on' if category == 'ทีม' }}"></i>ทีม</span>
+          <span>ระดับ <b class="choice {{ 'on' if level_primary }}"><i class="check {{ 'on' if level_primary }}"></i>ประถม</b> <b class="choice {{ 'on' if level_lower }}"><i class="check {{ 'on' if level_lower }}"></i>ม.ต้น</b> <b class="choice {{ 'on' if level_upper }}"><i class="check {{ 'on' if level_upper }}"></i>ม.ปลาย</b>{% if sheet.event_age %} รุ่น {{ sheet.event_age }} ปี{% endif %}</span>
+          <span>ประเภท <b class="choice {{ 'on' if gender == 'ชาย' }}"><i class="check {{ 'on' if gender == 'ชาย' }}"></i>ชาย</b> <b class="choice {{ 'on' if gender == 'หญิง' }}"><i class="check {{ 'on' if gender == 'หญิง' }}"></i>หญิง</b> <b class="choice {{ 'on' if gender == 'ผสม' }}"><i class="check {{ 'on' if gender == 'ผสม' }}"></i>ผสม</b></span>
+          <span>อีเวนท์ <b class="choice {{ 'on' if category == 'เดี่ยว' }}"><i class="check {{ 'on' if category == 'เดี่ยว' }}"></i>เดี่ยว</b> <b class="choice {{ 'on' if category in ['คู่','คู่ผสม'] }}"><i class="check {{ 'on' if category in ['คู่','คู่ผสม'] }}"></i>คู่</b> <b class="choice {{ 'on' if category == 'ทีม' }}"><i class="check {{ 'on' if category == 'ทีม' }}"></i>ทีม</b></span>
         </div>
         <div class="meta-line two">
-          <span>ระบบ <i class="check {{ 'on' if sheet.round['round_type'] == 'double_knockout' }}"></i>Double KO <i class="check {{ 'on' if sheet.round['round_type'] == 'knockout' }}"></i>KO</span>
-          <span>รอบ <i class="check {{ 'on' if sheet.round['round_no'] == 1 }}"></i>รอบแรก <i class="check {{ 'on' if sheet.round['round_no'] == 2 }}"></i>รอบสอง <i class="check {{ 'on' if '8' in round_name or 'QF' in round_name }}"></i>รอบ 8 ทีม (QF) <i class="check {{ 'on' if 'รอง' in round_name or 'SF' in round_name }}"></i>รองชนะเลิศ (SF) <i class="check {{ 'on' if 'ชิง' in round_name or 'Final' in round_name }}"></i>ชิงชนะเลิศ (Final)</span>
+          <span>ระบบ <b class="choice {{ 'on' if sheet.round['round_type'] == 'double_knockout' }}"><i class="check {{ 'on' if sheet.round['round_type'] == 'double_knockout' }}"></i>Double KO</b> <b class="choice {{ 'on' if sheet.round['round_type'] == 'knockout' }}"><i class="check {{ 'on' if sheet.round['round_type'] == 'knockout' }}"></i>KO</b></span>
+          <span>รอบ <b class="choice {{ 'on' if sheet.round['round_no'] == 1 }}"><i class="check {{ 'on' if sheet.round['round_no'] == 1 }}"></i>รอบแรก</b> <b class="choice {{ 'on' if sheet.round['round_no'] == 2 }}"><i class="check {{ 'on' if sheet.round['round_no'] == 2 }}"></i>รอบสอง</b> <b class="choice {{ 'on' if '8' in round_name or 'QF' in round_name }}"><i class="check {{ 'on' if '8' in round_name or 'QF' in round_name }}"></i>รอบ 8 ทีม (QF)</b> <b class="choice {{ 'on' if 'รอง' in round_name or 'SF' in round_name }}"><i class="check {{ 'on' if 'รอง' in round_name or 'SF' in round_name }}"></i>รองชนะเลิศ (SF)</b> <b class="choice {{ 'on' if 'ชิง' in round_name or 'Final' in round_name }}"><i class="check {{ 'on' if 'ชิง' in round_name or 'Final' in round_name }}"></i>ชิงชนะเลิศ (Final)</b></span>
         </div>
         <div class="meta-line three">
-          <span>ครั้งที่ <i class="check {{ 'on' if sheet.stage_no == 1 }}"></i>1 <i class="check {{ 'on' if sheet.stage_no == 2 }}"></i>2 <i class="check {{ 'on' if sheet.stage_no == 3 }}"></i>3</span>
+          <span>ครั้งที่ <b class="choice {{ 'on' if sheet.stage_no == 1 }}"><i class="check {{ 'on' if sheet.stage_no == 1 }}"></i>1</b> <b class="choice {{ 'on' if sheet.stage_no == 2 }}"><i class="check {{ 'on' if sheet.stage_no == 2 }}"></i>2</b> <b class="choice {{ 'on' if sheet.stage_no == 3 }}"><i class="check {{ 'on' if sheet.stage_no == 3 }}"></i>3</b></span>
           <span>กลุ่ม <b class="fill">{{ sheet.group_label }}</b></span>
           <span>คู่ที่ <b class="fill">{{ sheet.stage_label }}</b></span>
           <span>สนาม <b class="fill">{{ sheet.court_name or '' }}</b></span>
