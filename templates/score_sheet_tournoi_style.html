@@ -83,9 +83,10 @@
         </div>
         <div class="title">
           <div class="title-main">ใบบันทึกคะแนนการแข่งขันกีฬาเปตอง</div>
-          <div class="title-sub">{{ batch['name'] if batch else sheet.tournament_name }}{% if batch and batch['subtitle'] %} <span class="event-name">{{ batch['subtitle'] }}</span>{% endif %}</div>
+          <div class="title-sub">{{ batch['name'] if batch else sheet.tournament_name }}</div>
         </div>
         <div class="logos right-logos">
+          {% if batch and batch['score_extra_logo'] %}<img class="logo" src="{{ url_for('tournament_print_logo', tournament_id=sheet.tournament_id, side='extra') }}" alt="โลโก้คณะกรรมการเปตอง">{% endif %}
           {% if batch and (batch['right_logo'] or batch['use_default_right_logo']) %}<img class="logo" src="{{ url_for('tournament_print_logo', tournament_id=sheet.tournament_id, side='right') }}" alt="โลโก้ขวา">{% endif %}
         </div>
       </header>
@@ -126,7 +127,7 @@
         <span>เปลี่ยนตัว ทีม ........................ ขอเปลี่ยนตัวให้ ........................ ลงแข่งขันแทน ........................</span>
         <span>เปลี่ยนตัว ทีม ........................ ขอเปลี่ยนตัวให้ ........................ ลงแข่งขันแทน ........................</span>
       </div>
-      <footer class="footer">{{ batch['subtitle'] if batch and batch['subtitle'] else event_name }}</footer>
+      <footer class="footer">{{ event_name }}</footer>
     </article>
     {% endif %}
     {% endfor %}

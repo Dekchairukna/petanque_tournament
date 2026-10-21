@@ -141,6 +141,9 @@ def ensure_bulk_schema(db):
         )
         """
     )
+    batch_cols = table_columns(db, "tournament_batches")
+    if "score_extra_logo" not in batch_cols:
+        db.execute("ALTER TABLE tournament_batches ADD COLUMN score_extra_logo BLOB")
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS import_drafts (
@@ -1951,7 +1954,7 @@ def image_mimetype(data):
 
 @app.route("/tournaments/<int:tournament_id>/logo/<side>")
 def tournament_print_logo(tournament_id, side):
-    if side not in {"left", "right"}:
+    if side not in {"left", "right", "extra"}:
         return "ไม่พบโลโก้", 404
     db = get_db()
     tournament = db.execute(
@@ -1960,13 +1963,18 @@ def tournament_print_logo(tournament_id, side):
     if not tournament or not tournament["batch_id"]:
         return "ไม่พบโลโก้", 404
     batch = db.execute(
-        "SELECT left_logo, right_logo, use_default_right_logo FROM tournament_batches WHERE id = ?",
+        "SELECT left_logo, right_logo, score_extra_logo, use_default_right_logo FROM tournament_batches WHERE id = ?",
         (tournament["batch_id"],),
     ).fetchone()
     if not batch:
         return "ไม่พบโลโก้", 404
 
-    data = batch["left_logo"] if side == "left" else batch["right_logo"]
+    if side == "left":
+        data = batch["left_logo"]
+    elif side == "extra":
+        data = batch["score_extra_logo"]
+    else:
+        data = batch["right_logo"]
     if data:
         return send_file(
             io.BytesIO(bytes(data)), mimetype=image_mimetype(data),
