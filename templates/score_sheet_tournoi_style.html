@@ -38,10 +38,11 @@
     th.total-head { width:16mm; background:var(--gold); color:var(--purple); }
     td.team-cell { text-align:left; padding:0 1.5mm; color:#111; font-size:7.5pt; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     td.total-cell { background:#fff5ca; border-color:var(--gold); }
-    .signatures { display:grid; grid-template-columns:1fr 1.15fr 1fr; gap:4mm; padding:1mm 2.5mm .4mm; font-size:6.6pt; line-height:1.2; }
-    .sign-box { text-align:center; }
-    .sign-line { display:block; border-bottom:1px dotted var(--purple); height:3.3mm; margin-bottom:.4mm; text-align:left; }
-    .subs { display:grid; grid-template-columns:1fr 1fr; gap:1mm 5mm; padding:0 4mm .7mm; font-size:6.5pt; line-height:1.25; }
+    .write-area { margin-top:2.2mm; padding:0 3.5mm .8mm; font-size:7pt; line-height:1.35; }
+    .result-signatures { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5mm; margin-bottom:1.1mm; }
+    .write-line { display:flex; align-items:flex-end; white-space:nowrap; }
+    .dots { flex:1; min-width:8mm; height:3mm; margin-left:1mm; border-bottom:1px dotted var(--purple); }
+    .sub-row { display:grid; grid-template-columns:auto 1fr auto 1.15fr auto 1.15fr; align-items:end; column-gap:1mm; margin-top:.7mm; white-space:nowrap; }
     .footer { margin-top:auto; background:var(--purple); color:#fff; border-top:1px solid var(--gold); text-align:center; font-weight:700; min-height:4mm; line-height:4mm; font-size:6.7pt; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 2mm; }
     .empty { padding:25px; border:1px solid #ddd; color:#111; }
     @media print { .no-print { display:none!important; } body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } .page { margin:0; } }
@@ -118,14 +119,14 @@
         </tbody>
       </table>
 
-      <div class="signatures">
-        <div class="sign-box"><span class="sign-line">ลงชื่อ</span>นักกีฬา (ทีมบน)</div>
-        <div class="sign-box"><span class="sign-line">ลงชื่อ</span>กรรมการผู้บันทึกคะแนน</div>
-        <div class="sign-box"><span class="sign-line">ลงชื่อ</span>นักกีฬา (ทีมล่าง)</div>
-      </div>
-      <div class="subs">
-        <span>เปลี่ยนตัว ทีม ........................ ขอเปลี่ยนตัวให้ ........................ ลงแข่งขันแทน ........................</span>
-        <span>เปลี่ยนตัว ทีม ........................ ขอเปลี่ยนตัวให้ ........................ ลงแข่งขันแทน ........................</span>
+      <div class="write-area">
+        <div class="result-signatures">
+          <div class="write-line"><span>ลงชื่อผู้ชนะ</span><i class="dots"></i></div>
+          <div class="write-line"><span>ลงชื่อกรรมการ</span><i class="dots"></i></div>
+          <div class="write-line"><span>ลงชื่อผู้แพ้</span><i class="dots"></i></div>
+        </div>
+        <div class="sub-row"><span>ทีม</span><i class="dots"></i><span>เปลี่ยนตัว</span><i class="dots"></i><span>แทน</span><i class="dots"></i></div>
+        <div class="sub-row"><span>ทีม</span><i class="dots"></i><span>เปลี่ยนตัว</span><i class="dots"></i><span>แทน</span><i class="dots"></i></div>
       </div>
       <footer class="footer">{{ event_name }}</footer>
     </article>
