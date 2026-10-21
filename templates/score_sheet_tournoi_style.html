@@ -1,254 +1,136 @@
 <!DOCTYPE html>
 <html lang="th">
-
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>สกอร์ชีท - {{ tournament['name'] }}</title>
   <style>
-    @page {
-      size: A4 portrait;
-      margin: 5mm;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: Tahoma, Arial, sans-serif;
-      font-size: 15px;
-      margin: 0;
-      color: #000;
-    }
-
-    .no-print {
-      margin: 10px 0 14px;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .btn {
-      display: inline-block;
-      padding: 8px 14px;
-      border: 1px solid #111;
-      border-radius: 8px;
-      text-decoration: none;
-      color: #111;
-      background: #fff;
-      font-weight: 700;
-    }
-
-    .score-sheet {
-      border: 3px solid #000;
-      padding: 5px;
-      margin-bottom: 5px;
-      min-height: 13mm;
-      position: relative;
-      page-break-inside: avoid;
-    }
-
-    .page-break-after {
-      page-break-after: always;
-      break-after: page;
-    }
-
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 8px;
-      margin-bottom: 3px;
-      padding: 0 5px;
-      line-height: 1.25;
-    }
-
-    .event-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .event-name {
-      font-weight: 800;
-      font-size: 18px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .event-details {
-      font-size: 14px;
-      font-weight: 700;
-      margin-top: 2px;
-    }
-
-    .meta-box {
-      border: 1px solid #000;
-      padding: 4px 6px;
-      min-width: 118px;
-      text-align: center;
-      font-weight: 800;
-    }
-
-    .row {
-      display: flex;
-      align-items: flex-start;
-      margin: 3px 0;
-    }
-
-    .label {
-      width: 52px;
-      min-width: 52px;
-      padding-top: 7px;
-      font-weight: 800;
-    }
-
-    .boxes {
-      display: grid;
-      grid-template-columns: minmax(165px, 1fr) repeat(13, 30px) 58px;
-      gap: 2px;
-      width: 100%;
-    }
-
-    .box,
-    .team-name-box {
-      height: 30px;
-      border: 1px solid #000;
-      text-align: center;
-      line-height: 30px;
-      box-sizing: border-box;
-    }
-
-    .team-name-box {
-      text-align: left;
-      padding-left: 5px;
-      font-size: 13px;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-
-    .score-number {
-      font-weight: 800;
-      background: #f3f4f6;
-    }
-
-    .signature {
-      margin-top: 6px;
-      line-height: 1.45;
-      font-size: 14px;
-    }
-
-    .sheet-footer {
-      position: absolute;
-      right: 8px;
-      bottom: 0px;
-      font-size: 11px;
-      color: #333;
-    }
-
-    @media print {
-      .no-print {
-        display: none !important;
-      }
-
-      body {
-        margin: 0;
-      }
-
-      .score-sheet {
-        margin-bottom: 0;
-      }
-    }
+    @page { size: A4 portrait; margin: 5mm; }
+    * { box-sizing: border-box; }
+    :root { --purple:#392060; --gold:#f4bf16; --pale:#f7f3fb; --grid:#c9bdd8; }
+    body { margin:0; color:var(--purple); background:#fff; font-family:Tahoma,"Noto Sans Thai",Arial,sans-serif; font-size:8.2pt; }
+    .toolbar { margin:12px auto; max-width:1100px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:#111; }
+    .btn { border:1px solid #ddd; border-radius:9px; padding:8px 14px; color:#fff; background:var(--purple); font-weight:700; text-decoration:none; cursor:pointer; }
+    .toolbar select { padding:8px; border:1px solid #bbb; border-radius:8px; }
+    .page { width:200mm; min-height:287mm; margin:0 auto; display:grid; grid-template-rows:repeat(4, 1fr); gap:2mm; page-break-after:always; break-after:page; }
+    .page:last-child { page-break-after:auto; break-after:auto; }
+    .sheet { height:70.25mm; overflow:hidden; border:1.4px solid var(--purple); display:flex; flex-direction:column; page-break-inside:avoid; break-inside:avoid; background:white; }
+    .head { display:grid; grid-template-columns:24mm 1fr 28mm; min-height:14mm; align-items:center; padding:1.2mm 2mm .5mm; border-bottom:1.4px solid var(--gold); }
+    .logos { display:flex; justify-content:center; align-items:center; gap:1mm; height:12mm; }
+    .logo { max-width:19mm; max-height:11mm; object-fit:contain; }
+    .right-logos .logo { max-width:12mm; }
+    .title { text-align:center; min-width:0; line-height:1.15; }
+    .title-main { font-size:13.5pt; font-weight:800; white-space:nowrap; }
+    .title-sub { margin-top:.5mm; font-size:8.5pt; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .event-name { color:#9a6b00; }
+    .meta { background:var(--pale); padding:.7mm 2.2mm .8mm; font-weight:700; line-height:1.55; border-bottom:1px solid var(--grid); }
+    .meta-line { display:grid; align-items:center; column-gap:2mm; white-space:nowrap; }
+    .meta-line.one { grid-template-columns:1.15fr 1fr 1fr; }
+    .meta-line.two { grid-template-columns:.78fr 1.75fr; }
+    .meta-line.three { grid-template-columns:.8fr .9fr 1.15fr 1fr 1fr; }
+    .check { display:inline-block; width:2.3mm; height:2.3mm; border:1px solid currentColor; margin:0 .6mm 0 1.1mm; vertical-align:-.25mm; position:relative; }
+    .check.on:after { content:"✓"; position:absolute; left:.15mm; top:-1.25mm; font-size:7pt; font-weight:900; }
+    .fill { display:inline-block; min-width:12mm; border-bottom:1px dotted var(--purple); text-align:center; height:3mm; overflow:hidden; vertical-align:-.7mm; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; }
+    th, td { border:.65px solid var(--grid); height:5.3mm; text-align:center; padding:0; }
+    th { background:var(--purple); color:#fff; height:5.1mm; font-size:8pt; }
+    th.team-head { width:47mm; }
+    th.total-head { width:16mm; background:var(--gold); color:var(--purple); }
+    td.team-cell { text-align:left; padding:0 1.5mm; color:#111; font-size:7.5pt; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    td.total-cell { background:#fff5ca; border-color:var(--gold); }
+    .signatures { display:grid; grid-template-columns:1fr 1.15fr 1fr; gap:4mm; padding:1mm 2.5mm .4mm; font-size:6.6pt; line-height:1.2; }
+    .sign-box { text-align:center; }
+    .sign-line { display:block; border-bottom:1px dotted var(--purple); height:3.3mm; margin-bottom:.4mm; text-align:left; }
+    .subs { display:grid; grid-template-columns:1fr 1fr; gap:1mm 5mm; padding:0 4mm .7mm; font-size:6.5pt; line-height:1.25; }
+    .footer { margin-top:auto; background:var(--purple); color:#fff; border-top:1px solid var(--gold); text-align:center; font-weight:700; min-height:4mm; line-height:4mm; font-size:6.7pt; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 2mm; }
+    .empty { padding:25px; border:1px solid #ddd; color:#111; }
+    @media print { .no-print { display:none!important; } body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } .page { margin:0; } }
   </style>
 </head>
-
 <body>
-  <div class="no-print">
+  <div class="toolbar no-print">
     <a class="btn" href="javascript:window.print()">พิมพ์สกอร์ชีท</a>
     {% if round_options %}
     <form method="get" style="display:flex;gap:8px;align-items:center;margin:0;">
-      <label for="round-filter"><strong>เลือกรอบ:</strong></label>
-      <select id="round-filter" name="round" style="padding:8px 10px;border:1px solid #111;border-radius:8px;">
+      <strong>เลือกรอบ:</strong>
+      <select name="round">
         <option value="all" {% if selected_round == 'all' %}selected{% endif %}>ทั้งหมด</option>
-        {% for option in round_options %}
-        <option value="{{ option.id }}" {% if selected_round|string == option.id|string %}selected{% endif %}>{{ option.label }}</option>
-        {% endfor %}
+        {% for option in round_options %}<option value="{{ option.id }}" {% if selected_round|string == option.id|string %}selected{% endif %}>{{ option.label }}</option>{% endfor %}
       </select>
       <button class="btn" type="submit">แสดงรอบที่เลือก</button>
     </form>
     {% endif %}
-    <span>W = ผู้ชนะ · L = ผู้แพ้ · WL = ผู้แพ้จาก W1–W2 · LW = ผู้ชนะจาก L1–L2</span>
+    <span>จัดหน้า A4 จำนวน 4 ใบต่อหน้า</span>
   </div>
 
-  {% if not sheets %}
-  <div style="padding: 24px; border: 1px solid #ddd;">ยังไม่มีคู่แข่งขันสำหรับพิมพ์สกอร์ชีท</div>
-  {% endif %}
+  {% if not sheets %}<div class="empty">ยังไม่มีคู่แข่งขันสำหรับพิมพ์สกอร์ชีท</div>{% endif %}
 
-  {% for sheet in sheets %}
-  <div class="score-sheet {% if loop.index % 4 == 0 %}page-break-after{% endif %}">
-    <div class="header">
-      <div class="event-info">
-        <div class="event-name">{{ sheet.tournament_name or tournament['name'] }}</div>
-        <div class="event-details">
-          รอบ: {{ sheet.round['round_name'] }} &nbsp;&nbsp;
-          ระบบ: {{ competition_type_label(sheet.round['round_type']) }} &nbsp;&nbsp;
-          สาย: {{ sheet.group_label }} &nbsp;&nbsp;
-          {{ sheet.stage_label }} &nbsp;&nbsp;
-          สนาม: {{ sheet.court_name or '__________' }}
+  {% for page_sheets in sheets|batch(4, none) %}
+  <section class="page">
+    {% for sheet in page_sheets %}
+    {% if sheet %}
+    {% set event_name = sheet.event_label or sheet.tournament_name %}
+    {% set level_primary = 'ประถม' in event_name %}
+    {% set level_lower = 'ม.ต้น' in event_name %}
+    {% set level_upper = 'ม.ปลาย' in event_name %}
+    {% set category = sheet.event_category or '' %}
+    {% set gender = sheet.event_gender or '' %}
+    {% set round_name = sheet.round['round_name'] %}
+    <article class="sheet">
+      <header class="head">
+        <div class="logos">
+          {% if sheet.tournament_id %}<img class="logo" src="{{ url_for('tournament_print_logo', tournament_id=sheet.tournament_id, side='left') }}" alt="โลโก้ซ้าย">{% endif %}
+        </div>
+        <div class="title">
+          <div class="title-main">ใบบันทึกคะแนนการแข่งขันกีฬาเปตอง</div>
+          <div class="title-sub">{{ batch['name'] if batch else sheet.tournament_name }}{% if batch and batch['subtitle'] %} <span class="event-name">{{ batch['subtitle'] }}</span>{% endif %}</div>
+        </div>
+        <div class="logos right-logos">
+          {% if sheet.tournament_id %}<img class="logo" src="{{ url_for('tournament_print_logo', tournament_id=sheet.tournament_id, side='right') }}" alt="โลโก้ขวา">{% endif %}
+        </div>
+      </header>
+
+      <div class="meta">
+        <div class="meta-line one">
+          <span>ระดับ <i class="check {{ 'on' if level_primary }}"></i>ประถม <i class="check {{ 'on' if level_lower }}"></i>ม.ต้น <i class="check {{ 'on' if level_upper }}"></i>ม.ปลาย{% if sheet.event_age %} รุ่น {{ sheet.event_age }} ปี{% endif %}</span>
+          <span>ประเภท <i class="check {{ 'on' if gender == 'ชาย' }}"></i>ชาย <i class="check {{ 'on' if gender == 'หญิง' }}"></i>หญิง <i class="check {{ 'on' if gender == 'ผสม' }}"></i>ผสม</span>
+          <span>อีเวนท์ <i class="check {{ 'on' if category == 'เดี่ยว' }}"></i>เดี่ยว <i class="check {{ 'on' if category in ['คู่','คู่ผสม'] }}"></i>คู่ <i class="check {{ 'on' if category == 'ทีม' }}"></i>ทีม</span>
+        </div>
+        <div class="meta-line two">
+          <span>ระบบ <i class="check {{ 'on' if sheet.round['round_type'] == 'double_knockout' }}"></i>Double KO <i class="check {{ 'on' if sheet.round['round_type'] == 'knockout' }}"></i>KO</span>
+          <span>รอบ <i class="check {{ 'on' if sheet.round['round_no'] == 1 }}"></i>รอบแรก <i class="check {{ 'on' if sheet.round['round_no'] == 2 }}"></i>รอบสอง <i class="check {{ 'on' if '8' in round_name or 'QF' in round_name }}"></i>รอบ 8 ทีม (QF) <i class="check {{ 'on' if 'รอง' in round_name or 'SF' in round_name }}"></i>รองชนะเลิศ (SF) <i class="check {{ 'on' if 'ชิง' in round_name or 'Final' in round_name }}"></i>ชิงชนะเลิศ (Final)</span>
+        </div>
+        <div class="meta-line three">
+          <span>ครั้งที่ <i class="check {{ 'on' if sheet.stage_no == 1 }}"></i>1 <i class="check {{ 'on' if sheet.stage_no == 2 }}"></i>2 <i class="check {{ 'on' if sheet.stage_no == 3 }}"></i>3</span>
+          <span>กลุ่ม <b class="fill">{{ sheet.group_label }}</b></span>
+          <span>คู่ที่ <b class="fill">{{ sheet.stage_label }}</b></span>
+          <span>สนาม <b class="fill">{{ sheet.court_name or '' }}</b></span>
+          <span>วันที่ <b class="fill"></b> เวลา <b class="fill"></b></span>
         </div>
       </div>
 
-    </div>
+      <table>
+        <thead><tr><th class="team-head">ทีม / โรงเรียน</th>{% for i in range(1,14) %}<th>{{ i }}</th>{% endfor %}<th class="total-head">รวม</th></tr></thead>
+        <tbody>
+          <tr><td class="team-cell">{{ sheet.team1_name }}</td>{% for _ in range(13) %}<td></td>{% endfor %}<td class="total-cell"></td></tr>
+          <tr><td class="team-cell">{{ sheet.team2_name }}</td>{% for _ in range(13) %}<td></td>{% endfor %}<td class="total-cell"></td></tr>
+        </tbody>
+      </table>
 
-    <div class="row">
-      <div class="label">ทีม:</div>
-      <div class="boxes">
-        <div class="team-name-box team-name">{{ sheet.team1_name }}</div>
-        {% for _ in range(13) %}<div class="box"></div>{% endfor %}
-        <div class="box"></div>
+      <div class="signatures">
+        <div class="sign-box"><span class="sign-line">ลงชื่อ</span>นักกีฬา (ทีมบน)</div>
+        <div class="sign-box"><span class="sign-line">ลงชื่อ</span>กรรมการผู้บันทึกคะแนน</div>
+        <div class="sign-box"><span class="sign-line">ลงชื่อ</span>นักกีฬา (ทีมล่าง)</div>
       </div>
-    </div>
-
-    <div class="row">
-      <div class="label">คะแนน:</div>
-      <div class="boxes">
-        <div class="team-name-box"></div>
-        {% for i in range(1, 14) %}<div class="box score-number">{{ i }}</div>{% endfor %}
-        <div class="box score-number">รวม</div>
+      <div class="subs">
+        <span>เปลี่ยนตัว ทีม ........................ ขอเปลี่ยนตัวให้ ........................ ลงแข่งขันแทน ........................</span>
+        <span>เปลี่ยนตัว ทีม ........................ ขอเปลี่ยนตัวให้ ........................ ลงแข่งขันแทน ........................</span>
       </div>
-    </div>
-
-    <div class="row">
-      <div class="label">ทีม:</div>
-      <div class="boxes">
-        <div class="team-name-box team-name">{{ sheet.team2_name }}</div>
-        {% for _ in range(13) %}<div class="box"></div>{% endfor %}
-        <div class="box"></div>
-      </div>
-    </div>
-
-    <div class="signature">
-      ลงชื่อทีม : _________________________________&nbsp;&nbsp;&nbsp;
-      ลงชื่อทีม : ________________________________<br>
-      ทีม _________________ เปลี่ยนตัว: _____________________ แทน ______________________________<br>
-      ทีม _________________ เปลี่ยนตัว: _____________________ แทน ______________________________<br>
-      ลงชื่อกรรมการ: _________________________________________________________________________
-    </div>
-
-  </div>
+      <footer class="footer">{{ batch['subtitle'] if batch and batch['subtitle'] else event_name }}</footer>
+    </article>
+    {% endif %}
+    {% endfor %}
+  </section>
   {% endfor %}
-
-  <script>
-    function fitTeamName(box, minFontSize = 8) {
-      let fontSize = parseFloat(window.getComputedStyle(box).fontSize);
-      while (box.scrollWidth > box.clientWidth && fontSize > minFontSize) {
-        fontSize -= 0.5;
-        box.style.fontSize = fontSize + 'px';
-      }
-    }
-    document.querySelectorAll('.team-name').forEach(box => fitTeamName(box));
-  </script>
 </body>
-
 </html>

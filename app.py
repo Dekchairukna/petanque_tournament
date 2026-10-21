@@ -1544,6 +1544,26 @@ def score_sheet_round_options(round_views):
     return options
 
 
+def attach_score_sheet_event(sheets, tournament):
+    """Attach event metadata needed by the compact four-up print layout."""
+    for sheet in sheets:
+        sheet["tournament_id"] = tournament["id"]
+        sheet["tournament_name"] = tournament["name"]
+        sheet["event_label"] = tournament["event_label"] or tournament["name"]
+        sheet["event_category"] = tournament["event_category"] or ""
+        sheet["event_gender"] = tournament["event_gender"] or ""
+        sheet["event_age"] = tournament["event_age"] or ""
+    return sheets
+
+
+def score_sheet_batch(db, tournament):
+    if not tournament["batch_id"]:
+        return None
+    return db.execute(
+        "SELECT * FROM tournament_batches WHERE id = ?", (tournament["batch_id"],)
+    ).fetchone()
+
+
 # ------------------------- template globals -------------------------
 @app.context_processor
 def inject_user():
@@ -1988,7 +2008,9 @@ def tournament_score_sheets(tournament_id):
             selected_round_id = candidate
         else:
             selected_round = "all"
-    sheets = build_score_sheet_matches(round_views, only_round_id=selected_round_id)
+    sheets = attach_score_sheet_event(
+        build_score_sheet_matches(round_views, only_round_id=selected_round_id), tournament
+    )
     return render_template(
         "score_sheet_tournoi_style.html",
         tournament=tournament,
@@ -1996,6 +2018,7 @@ def tournament_score_sheets(tournament_id):
         round_options=round_options,
         selected_round=selected_round,
         title_suffix="ทุกสกอร์ชีท",
+        batch=score_sheet_batch(db, tournament),
     )
 
 
@@ -2026,12 +2049,15 @@ def round_score_sheet(round_id):
         (round_row["tournament_id"],),
     ).fetchone()
     round_views = get_round_views(round_row["tournament_id"])
-    sheets = build_score_sheet_matches(round_views, only_round_id=round_id)
+    sheets = attach_score_sheet_event(
+        build_score_sheet_matches(round_views, only_round_id=round_id), tournament
+    )
     return render_template(
         "score_sheet_tournoi_style.html",
         tournament=tournament,
         sheets=sheets,
         title_suffix=round_row["round_name"],
+        batch=score_sheet_batch(db, tournament),
     )
 
 
@@ -2055,12 +2081,16 @@ def group_score_sheet(round_id, group_no):
         (round_row["tournament_id"],),
     ).fetchone()
     round_views = get_round_views(round_row["tournament_id"])
-    sheets = build_score_sheet_matches(round_views, only_round_id=round_id, only_group_no=group_no)
+    sheets = attach_score_sheet_event(
+        build_score_sheet_matches(round_views, only_round_id=round_id, only_group_no=group_no),
+        tournament,
+    )
     return render_template(
         "score_sheet_tournoi_style.html",
         tournament=tournament,
         sheets=sheets,
         title_suffix=f"{round_row['round_name']} / สาย {group_label(group_no)}",
+        batch=score_sheet_batch(db, tournament),
     )
 
 
@@ -3487,9 +3517,9 @@ def batch_score_sheets(batch_id):
             round_views = round_views[:1]
         elif rounds_mode == "latest":
             round_views = round_views[-1:]
-        tournament_sheets = build_score_sheet_matches(round_views)
-        for sheet in tournament_sheets:
-            sheet["tournament_name"] = tournament["name"]
+        tournament_sheets = attach_score_sheet_event(
+            build_score_sheet_matches(round_views), tournament
+        )
         sheets.extend(tournament_sheets)
 
     return render_template(
@@ -3499,6 +3529,7 @@ def batch_score_sheets(batch_id):
         round_options=None,
         selected_round="all",
         title_suffix=f"สกอร์ชีทรวม {len(tournaments)} ประเภท",
+        batch=batch,
     )
 
 
