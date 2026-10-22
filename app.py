@@ -673,8 +673,69 @@ def group_label(group_no):
     return alphabet[idx] if 0 <= idx < len(alphabet) else f"G{group_no}"
 
 
-def placeholder_name(rank_no, group_no):
-    return f"{rank_no}{group_label(group_no)}"
+def round_group_label(round_type, group_count, group_no, alpha_offset=0):
+    """ชื่อสายตามผังแข่งขัน: สายคัดเลือกต่ออักษร และรอบแพ้คัดออกใช้ QF/SF/Final."""
+    if round_type == "double_knockout":
+        return group_label(alpha_offset + group_no)
+    if group_count == 4:
+        return f"QF{group_no}"
+    if group_count == 2:
+        return f"SF{group_no}"
+    if group_count == 1:
+        return "Final"
+    return f"R{group_count}-{group_no}"
+
+
+def placeholder_name(rank_no, group_name):
+    return f"{group_name}{rank_no}"
+
+
+REFERENCE_DOUBLE_KO_ROUTES = {
+    # อ้างอิงผังในไฟล์ โปรแกรมจับสลากแบ่งสาย_Final_191069.xlsx
+    4: [
+        ["A1", "B2", "B1", "A2"],
+        ["C1", "D2", "D1", "C2"],
+    ],
+    6: [
+        ["B2", "C2", "A1"],
+        ["A2", "C1", "B1"],
+        ["E2", "F2", "D1"],
+        ["D2", "F1", "E1"],
+    ],
+    8: [
+        ["A1", "C2", "B1", "D2"],
+        ["A2", "C1", "B2", "D1"],
+        ["E1", "G2", "H2", "F1"],
+        ["E2", "G1", "H1", "F2"],
+    ],
+}
+
+
+def planned_next_round_codes(round_view, target_round_type):
+    """คืนตำแหน่งอ้างอิงของรอบถัดไปตามผัง Excel; None หมายถึงใช้การจับแบบเดิม."""
+    source_groups = round_view["group_views"]
+    source_type = round_view["round"]["round_type"]
+
+    if source_type == "double_knockout" and target_round_type == "double_knockout":
+        return REFERENCE_DOUBLE_KO_ROUTES.get(len(source_groups))
+
+    if target_round_type != "knockout":
+        return None
+
+    if source_type == "double_knockout":
+        labels = [group["group_label"] for group in source_groups]
+        codes = []
+        for idx in range(0, len(labels), 2):
+            pair = labels[idx:idx + 2]
+            if len(pair) == 2:
+                left, right = pair
+                codes.extend([[f"{left}1", f"{right}2"], [f"{right}1", f"{left}2"]])
+        return codes or None
+
+    # QF -> SF และ SF -> Final เดินตาม Match ID ในไฟล์ (S1.. / F1..)
+    participants = build_source_participants(round_view)
+    source_codes = [p["source_code"] for p in participants]
+    return [source_codes[idx:idx + 2] for idx in range(0, len(source_codes), 2) if len(source_codes[idx:idx + 2]) == 2]
 
 
 def get_next_round_no(tournament_id):
@@ -1177,6 +1238,7 @@ def get_round_views(tournament_id):
     ).fetchall()
 
     views = []
+    alpha_offset = 0
     for rnd in rounds:
         slots = db.execute(
             "SELECT * FROM round_slots WHERE round_id = ? ORDER BY group_no, slot_no",
@@ -1221,7 +1283,9 @@ def get_round_views(tournament_id):
 
             group_views.append({
                 "group_no": group_no,
-                "group_label": group_label(group_no),
+                "group_label": round_group_label(
+                    rnd["round_type"], rnd["group_count"], group_no, alpha_offset
+                ),
                 "slots": group_slots,
                 "result": res,
                 "stage_state": stage_state,
@@ -1234,6 +1298,8 @@ def get_round_views(tournament_id):
             "group_views": group_views,
             "score_map": merged_score_map,
         })
+        if rnd["round_type"] == "double_knockout":
+            alpha_offset += rnd["group_count"]
     return views
 
 
@@ -1300,10 +1366,21 @@ def build_source_participants(round_view):
     for group in round_view["group_views"]:
         qualified = group["result"]["qualified"]
         for rank_no in range(1, qualifier_count + 1):
+            if round_type == "knockout":
+                label = group["group_label"]
+                if label.startswith("QF"):
+                    source_code = f"S{group['group_no']}"
+                elif label.startswith("SF"):
+                    source_code = f"F{group['group_no']}"
+                else:
+                    source_code = f"W{group['group_no']}"
+            else:
+                source_code = placeholder_name(rank_no, group["group_label"])
             if len(qualified) >= rank_no:
                 slot = qualified[rank_no - 1]
                 participants.append({
                     "display_name": slot["team_name"] or slot["display_name"],
+                    "source_code": source_code,
                     "source_type": "team",
                     "source_group_no": group["group_no"],
                     "source_rank": rank_no,
@@ -1313,7 +1390,8 @@ def build_source_participants(round_view):
                 })
             else:
                 participants.append({
-                    "display_name": placeholder_name(rank_no, group["group_no"]),
+                    "display_name": source_code,
+                    "source_code": source_code,
                     "source_type": "placeholder",
                     "source_group_no": group["group_no"],
                     "source_rank": rank_no,
@@ -1340,7 +1418,15 @@ def create_next_round_from_round_view(tournament, round_view, target_round_type,
         group_count = manual_group_count if manual_group_count and manual_group_count > 0 else max(1, math.ceil(len(names_for_draw) / 2))
         group_sizes = [2] * group_count
 
-    random_groups = smart_draw_groups(names_for_draw, group_sizes, avoid_same=separate_same)
+    planned_codes = None if manual_group_count else planned_next_round_codes(round_view, target_round_type)
+    participant_by_code = {p["source_code"]: p for p in participants}
+    if planned_codes and all(code in participant_by_code for group in planned_codes for code in group):
+        random_groups = [
+            [participant_by_code[code]["display_name"] for code in group]
+            for group in planned_codes
+        ]
+    else:
+        random_groups = smart_draw_groups(names_for_draw, group_sizes, avoid_same=separate_same)
     if target_round_type == "double_knockout":
         for group in random_groups:
             while len(group) < 4:
@@ -1471,7 +1557,7 @@ def build_score_sheet_matches(round_views, only_round_id=None, only_group_no=Non
         sheets.append({
             "round": rv["round"],
             "group_no": group["group_no"],
-            "group_label": group_label(group["group_no"]),
+            "group_label": group["group_label"],
             "stage_no": stage_no,
             "stage_label": stage_label,
             "court_name": court_name or (a["court_name"] if a and a["court_name"] else (b["court_name"] if b and b["court_name"] else "")),
@@ -2089,6 +2175,12 @@ def group_score_sheet(round_id, group_no):
         (round_row["tournament_id"],),
     ).fetchone()
     round_views = get_round_views(round_row["tournament_id"])
+    selected_view = next((rv for rv in round_views if rv["round"]["id"] == round_id), None)
+    selected_group = next(
+        (group for group in (selected_view["group_views"] if selected_view else []) if group["group_no"] == group_no),
+        None,
+    )
+    selected_label = selected_group["group_label"] if selected_group else group_label(group_no)
     sheets = attach_score_sheet_event(
         build_score_sheet_matches(round_views, only_round_id=round_id, only_group_no=group_no),
         tournament,
@@ -2097,7 +2189,7 @@ def group_score_sheet(round_id, group_no):
         "score_sheet_tournoi_style.html",
         tournament=tournament,
         sheets=sheets,
-        title_suffix=f"{round_row['round_name']} / สาย {group_label(group_no)}",
+        title_suffix=f"{round_row['round_name']} / สาย {selected_label}",
         batch=score_sheet_batch(db, tournament),
     )
 
@@ -2526,7 +2618,12 @@ def create_next_round(tournament_id):
         flash("การแข่งขันจบแล้ว รอบนี้ได้ผู้ชนะเรียบร้อย", "success")
         return redirect(url_for("view_tournament", tournament_id=tournament_id))
     if target_round_type == "auto":
-        target_round_type = "knockout" if participant_count <= 2 else "double_knockout"
+        # ผังอ้างอิงใช้ Double KO สองรอบ แล้วจึงเข้าสู่ QF/SF/Final
+        target_round_type = (
+            "knockout"
+            if source_view["round"]["round_no"] >= 2 or participant_count <= 2
+            else "double_knockout"
+        )
 
     sync_eliminated_for_round(tournament_id, source_view["round"]["round_no"], source_view)
     collect_eliminated_from_round(tournament_id, source_view)
@@ -2569,7 +2666,11 @@ def plan_all_rounds(tournament_id):
             participant_count = len(build_source_participants(latest))
             if participant_count <= 1:
                 break
-            target_type = "knockout" if participant_count <= 2 else "double_knockout"
+            target_type = (
+                "knockout"
+                if latest["round"]["round_no"] >= 2 or participant_count <= 2
+                else "double_knockout"
+            )
             create_next_round_from_round_view(
                 tournament=tournament,
                 round_view=latest,
@@ -3171,7 +3272,7 @@ def build_export_event(tournament, rounds_mode="all"):
                 for s in (result.get("qualified") or [])
                 if s
             ]
-            groups.append({"group_no": group_label(gv["group_no"]), "slots": slots_out, "qualified": qualified})
+            groups.append({"group_no": gv["group_label"], "slots": slots_out, "qualified": qualified})
         rounds.append({"label": label, "round_type": rnd["round_type"], "groups": groups})
 
     # รายชื่อทีม + สาย/ลำดับจากรอบแรก
@@ -3181,7 +3282,7 @@ def build_export_event(tournament, rounds_mode="all"):
         for gv in all_views[0]["group_views"]:
             for slot in gv["slots"]:
                 if not slot.get("is_bye") and slot.get("team_name"):
-                    first_pos[slot["team_name"]] = (group_label(gv["group_no"]), slot.get("display_slot_no"))
+                    first_pos[slot["team_name"]] = (gv["group_label"], slot.get("display_slot_no"))
     teams = []
     for t in db.execute(
         "SELECT * FROM tournament_teams WHERE tournament_id = ? ORDER BY id", (tournament["id"],)
